@@ -1,0 +1,12 @@
+# R system files
+.Rhistory
+.RData
+.Rproj.user
+
+# Logs and secrets
+error_log.txt
+logs/
+*.log
+
+# Credentials (optional backup precaution)
+*.key
