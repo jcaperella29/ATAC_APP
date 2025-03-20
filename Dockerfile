@@ -18,4 +18,5 @@ COPY . /app
 EXPOSE 8080
 
 # Launch app manually using shiny::runApp
-CMD ["R", "-e", "options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"]
+
+CMD ["R", "-e", "cat('🚀 Starting App on PORT=', Sys.getenv('PORT'), '\\n'); options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"]
