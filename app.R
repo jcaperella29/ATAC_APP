@@ -39,7 +39,11 @@ ui <- fluidPage(
         tabPanel("Peak Annotation Table", DTOutput("peak_table"), downloadButton("download_peak_table", "Download CSV")),
         tabPanel("Annotation Pie Chart", plotOutput("pie_plot")),
         tabPanel("Enrichment Table", DTOutput("enrich_table"), downloadButton("download_enrich_table", "Download CSV")),
-        tabPanel("Enrichment Bar Plot", plotlyOutput("bar_plot"))
+        tabPanel("Enrichment Bar Plot", plotlyOutput("bar_plot")),
+        tabPanel("README", 
+                 includeMarkdown("README.md"),
+                 style = "padding: 20px; background-color: #f9f9f9; border-radius: 8px;")
+        
       )
     )
   )
