@@ -1,8 +1,7 @@
-FROM rocker/r-ver:4.3.1
+FROM rocker/shiny:4.3.1
 
-
+# Install system libs
 RUN apt-get update && apt-get install -y \
-    build-essential \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev \
@@ -16,8 +15,11 @@ RUN apt-get update && apt-get install -y \
     liblzma-dev \
     libz-dev \
     libncurses-dev \
-    pandoc && apt-get clean
-
+    pandoc \
+    libpng-dev \
+    libjpeg-dev \
+    libcairo2-dev \
+    && apt-get clean
 
 # Install R packages
 RUN R -e "install.packages(c('shiny', 'shinyjs', 'plotly', 'DT', 'enrichR'))"
@@ -25,11 +27,14 @@ RUN R -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('
 RUN R -e "BiocManager::install(c('ChIPseeker', 'TxDb.Hsapiens.UCSC.hg38.knownGene', 'org.Hs.eg.db', 'GenomicRanges', 'clusterProfiler'), dependencies=TRUE)"
 
 # Copy app
-COPY . /app
+COPY . /srv/shiny-server/
 
-# Expose port
+# Set permissions
+RUN chown -R shiny:shiny /srv/shiny-server
+
 EXPOSE 8080
 
-# Launch app manually using shiny::runApp
+# Cloud Run health check (optional but good)
+HEALTHCHECK CMD curl --fail http://localhost:8080 || exit 1
 
-CMD ["R", "-e", "cat('🚀 Starting App on PORT=', Sys.getenv('PORT'), '\\n'); options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"]
+# CMD is already set to shiny-server in base image
