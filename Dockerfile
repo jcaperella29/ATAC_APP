@@ -1,5 +1,6 @@
 FROM rocker/r-ver:4.3.1
 
+
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcurl4-openssl-dev \
@@ -15,9 +16,7 @@ RUN apt-get update && apt-get install -y \
     liblzma-dev \
     libz-dev \
     libncurses-dev \
-    libhts-dev \
     pandoc && apt-get clean
-
 
 
 # Install R packages
