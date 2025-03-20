@@ -41,8 +41,19 @@ ui <- fluidPage(
         tabPanel("Enrichment Table", DTOutput("enrich_table"), downloadButton("download_enrich_table", "Download CSV")),
         tabPanel("Enrichment Bar Plot", plotlyOutput("bar_plot")),
         tabPanel("README", 
-                 includeMarkdown("README.md"),
-                 style = "padding: 20px; background-color: #f9f9f9; border-radius: 8px;")
+                 div(
+                   includeMarkdown("README.md"),
+                   style = "
+      max-height: 500px;
+      overflow-y: auto;
+      background-color: #f9f9f9;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
+    "
+                 )
+        )
+        
         
       )
     )
