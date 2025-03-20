@@ -1,4 +1,5 @@
 FROM rocker/r-ver:4.3.1
+CMD ["R", "-e", "cat('🔥 App booting...\n'); options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"]
 
 # System deps
 RUN apt-get update && apt-get install -y \
