@@ -30,12 +30,48 @@ install.packages(c(
 
 🧪 How to Run
 Clone the repo and launch the app locally:
+in your terminal run:
+R
 
-r
-Copy
-Edit
 library(shiny)
 runApp("path/to/ATAC_APP"
+
+## 🧪 How to Use the App
+
+1. **Upload MACS2 narrowPeak file**  
+   - Click **"Upload MACS2 narrowPeak File"**  
+   - Select your `.narrowPeak` file to load peaks into the app
+
+2. **Run Peak Annotation**  
+   - Click the **"Run Peak Annotation"** button  
+   - Uses `ChIPseeker` to assign each peak to a genomic feature (e.g., promoter, intron, intergenic)
+
+3. **Run Enrichment Analysis**  
+   - Use the dropdown to choose a database (GO, KEGG, Reactome)  
+   - Then click **"Run Enrichment Analysis"**  
+   - Identifies overrepresented biological processes or pathways using your annotated gene list
+
+---
+
+## 📊 Tabs Overview
+
+- **Peak Annotation Table**  
+  View all annotated peaks in a searchable, filterable table  
+  → Includes download button for `.csv` export
+
+- **Annotation Pie Chart**  
+  Visual summary of the distribution of genomic features assigned to peaks
+
+- **Enrichment Table**  
+  Tabular view of enriched terms from the selected database  
+  → Also downloadable as `.csv`
+
+- **Enrichment Bar Plot**  
+  Visualize the top 10 enriched terms by adjusted p-value (interactive `plotly` bar chart)
+
+- **README**  
+  You're here! App walkthrough and feature guide embedded directly for convenience.
+
 
 🛠️ Developer Notes
 🔒 Internal Error Logging & Monitoring
