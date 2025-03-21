@@ -42,7 +42,7 @@ ui <- fluidPage(
         tabPanel("Enrichment Bar Plot", plotlyOutput("bar_plot")),
         tabPanel("README", 
                  div(
-                   includeMarkdown("README.md"),
+                   includeMarkdown("HOW_TO.md"),
                    style = "
       max-height: 500px;
       overflow-y: auto;
