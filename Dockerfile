@@ -34,5 +34,5 @@ WORKDIR /app
 # Port exposure
 EXPOSE 8080
 
-# Launch Shiny manually
-CMD ["R", "-e", "cat('🚀 Launching app on port', Sys.getenv('PORT'), '\\n'); options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"]
+
+CMD ["R", "-e", "cat('🚀 Starting on port ', Sys.getenv('PORT'), '\\n'); port <- as.integer(Sys.getenv('PORT', unset = '8080')); options(shiny.port=port, shiny.host='0.0.0.0', shiny.launch.browser=FALSE); shiny::runApp('/app')"]
