@@ -1,0 +1,54 @@
+Bootstrap: docker
+From: rocker/r-ver:4.3.1
+
+%labels
+    Maintainer ATAC DevOps 🧬
+    App ATAC-seq Shiny Viewer
+
+%environment
+    export PORT=8080
+    export SHINY_PORT=8080
+    export DEBIAN_FRONTEND=noninteractive
+    export MAKEFLAGS="-j4"
+
+%post
+    apt-get update && apt-get install -y \
+        build-essential \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        libxml2-dev \
+        libgit2-dev \
+        libglu1-mesa \
+        libxkbcommon-x11-0 \
+        libharfbuzz-dev \
+        libfribidi-dev \
+        libfreetype6-dev \
+        libbz2-dev \
+        liblzma-dev \
+        libz-dev \
+        libncurses-dev \
+        libxt-dev \
+        libpng-dev \
+        libjpeg-dev \
+        libtiff5-dev \
+        libicu-dev \
+        zlib1g-dev \
+        pandoc && apt-get clean
+
+    R -e "install.packages(c('shiny', 'shinyjs', 'plotly', 'DT', 'enrichR'), repos='https://cloud.r-project.org')"
+    R -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cloud.r-project.org')"
+    R -e "BiocManager::install(version='3.18', ask=FALSE)"
+    R -e "BiocManager::install(c('ChIPseeker', 'TxDb.Hsapiens.UCSC.hg38.knownGene', 'org.Hs.eg.db', 'GenomicRanges', 'clusterProfiler', 'enrichplot'), ask=FALSE, update=FALSE, dependencies=TRUE)"
+
+%files
+    app.R /app/app.R
+    www/ /app/www/
+    README.md /app/README.md
+    email_log.R /app/email_log.R
+
+%runscript
+    echo "🔥 Starting ATAC Shiny App on port ${PORT}"
+    Rscript -e "options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"
+
+%startscript
+    exec Rscript -e "options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"
