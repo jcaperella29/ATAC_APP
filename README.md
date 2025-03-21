@@ -50,6 +50,26 @@ setwd("path/to/ATAC_APP")
 library(shiny)
 runApp(".")
 
+
+🧠 Option 3: Singularity (for HPC clusters)
+If you're on an HPC system using Singularity or Apptainer:
+
+📦 Build the container
+
+singularity build atac-shiny.sif Singularity.def
+
+🚀 Run the app
+
+singularity run --bind $(pwd):/mnt atac-shiny.sif
+
+🌐 Access in browser
+
+# On remote HPC, port forward:
+ssh -L 8080:localhost:8080 youruser@cluster
+# Then open:
+http://localhost:8080
+
+
 🎛️ How to Use the App
 Upload a MACS2 .narrowPeak file
 
@@ -63,6 +83,8 @@ Run Enrichment
 
 Select DB: GO / KEGG / Reactome
 Click "Run Enrichment Analysis"
+
+
 
 
 📊 Tab Overview
