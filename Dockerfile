@@ -1,4 +1,9 @@
 FROM rocker/r-ver:4.3.1
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV MAKEFLAGS="-j4"
+
+# System packages
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcurl4-openssl-dev \
@@ -19,21 +24,25 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     libtiff5-dev \
     libicu-dev \
+    zlib1g-dev \
     pandoc && apt-get clean
 
+# Install core R packages
+RUN R -e "install.packages(c('shiny', 'shinyjs', 'plotly', 'DT', 'enrichR'), repos='https://cloud.r-project.org')"
 
+# Bioconductor with explicit enrichplot to avoid lazy load error
+RUN R -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cloud.r-project.org')"
+RUN R -e "BiocManager::install(version='3.18', ask=FALSE)"
+RUN R -e "BiocManager::install(c('ChIPseeker', 'TxDb.Hsapiens.UCSC.hg38.knownGene', 'org.Hs.eg.db', 'GenomicRanges', 'clusterProfiler', 'enrichplot'), ask=FALSE, update=FALSE, dependencies=TRUE)"
 
-# Install R packages
-RUN R -e "install.packages(c('shiny', 'shinyjs', 'plotly', 'DT', 'enrichR'))"
-RUN R -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager')"
-RUN R -e "BiocManager::install(c('ChIPseeker', 'TxDb.Hsapiens.UCSC.hg38.knownGene', 'org.Hs.eg.db', 'GenomicRanges', 'clusterProfiler', 'enrichplot'), dependencies=TRUE)"
-
-# Copy repo contents
+# Copy app into image
 COPY . /app
+
+# Set working directory
 WORKDIR /app
 
-# Port exposure
+# Expose port expected by Cloud Run
 EXPOSE 8080
 
-
-CMD ["R", "-e", "cat('🚀 Starting on port ', Sys.getenv('PORT'), '\\n'); port <- as.integer(Sys.getenv('PORT', unset = '8080')); options(shiny.port=port, shiny.host='0.0.0.0', shiny.launch.browser=FALSE); shiny::runApp('/app')"]
+# Run the app manually on port 8080
+CMD ["Rscript", "-e", "cat('🔥 Booting on port=', Sys.getenv('PORT'), '\\n'); options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"]
