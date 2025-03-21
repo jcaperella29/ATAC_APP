@@ -1,7 +1,6 @@
 FROM rocker/r-ver:4.3.1
-
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
+    build-essential \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev \
@@ -15,17 +14,19 @@ RUN apt-get update && apt-get install -y \
     liblzma-dev \
     libz-dev \
     libncurses-dev \
+    libxt-dev \
     libpng-dev \
     libjpeg-dev \
-    libcairo2-dev \
-    curl \
-    pandoc \
-    && apt-get clean
+    libtiff5-dev \
+    libicu-dev \
+    pandoc && apt-get clean
+
+
 
 # Install R packages
 RUN R -e "install.packages(c('shiny', 'shinyjs', 'plotly', 'DT', 'enrichR'))"
 RUN R -e "if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager')"
-RUN R -e "BiocManager::install(c('ChIPseeker', 'TxDb.Hsapiens.UCSC.hg38.knownGene', 'org.Hs.eg.db', 'GenomicRanges', 'clusterProfiler'), dependencies=TRUE)"
+RUN R -e "BiocManager::install(c('ChIPseeker', 'TxDb.Hsapiens.UCSC.hg38.knownGene', 'org.Hs.eg.db', 'GenomicRanges', 'clusterProfiler', 'enrichplot'), dependencies=TRUE)"
 
 # Copy repo contents
 COPY . /app
