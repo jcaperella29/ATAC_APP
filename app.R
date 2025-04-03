@@ -1,3 +1,4 @@
+
 library(shiny)
 library(shinyjs)
 library(plotly)
@@ -23,7 +24,8 @@ ui <- fluidPage(
   titlePanel("ATAC-seq Peak Annotation & Enrichment Viewer"),
   sidebarLayout(
     sidebarPanel(
-      fileInput("peakfile", "Upload MACS2 narrowPeak File", accept = ".narrowPeak"),
+      fileInput("peakfile", "Upload MACS2 narrowPeak or BED File", accept = c(".narrowPeak", ".bed")),
+      
       selectInput("enrichr_db", "Select Enrichment Database:",
                   choices = c("GO_Biological_Process_2023",
                               "KEGG_2021_Human",
