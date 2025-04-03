@@ -6,6 +6,22 @@ This interactive **R Shiny** app allows you to upload **MACS2 `.narrowPeak`** fi
 
 ---
 
+## 📸 App Screenshots
+
+### 🧬 Peak Annotation Pie Chart
+![Pie Chart](screenshots/Annotation_pie_chart.png)
+
+### 📑 Enrichment Table
+![Enrichment Table](screenshots/enrichment_table.png)
+
+### 📊 Peak Annotation Table
+![Annotation Table](screenshots/Annotation_table.png)
+
+### 🔬 Enrichment Bar Plot
+![Bar Plot](screenshots/enrichment_bar_plot.png)
+
+
+
 ## 🚀 Features
 
 - 📂 Upload MACS2 `.narrowPeak` files
