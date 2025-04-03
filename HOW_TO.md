@@ -1,6 +1,6 @@
 🧬 Step 1: Upload Your Data
-Click "Upload MACS2 narrowPeak File"
-Select a .narrowPeak file from your MACS2 output
+Click "Upload MACS2 narrowPeak File or BED file "
+Select a .narrowPeak file from your MACS2 output or a .bed file
 Wait for confirmation message
 ✅ File Accepted → You're ready to annotate.
 
