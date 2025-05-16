@@ -1,8 +1,30 @@
+
+
+
+
+
+
 # 🔬 ATAC-seq Peak Annotation & Enrichment Viewer
 
 This interactive **R Shiny** app allows you to upload **MACS2 `.narrowPeak`** files, annotate peaks using **ChIPseeker**, and visualize functional enrichment with **enrichR** — all without touching a single line of R.
 
 💡 Built with love in R, glowy CSS, and battle-tested on real-world ATAC-seq data.
+
+---
+
+## 📚 Table of Contents
+
+- [📸 App Screenshots](#-app-screenshots)
+- [🚀 Features](#-features)
+- [🧪 Sample Data](#-sample-data)
+- [📦 Requirements](#-requirements-if-running-outside-docker)
+- [🧪 How to Run the App](#-how-to-run-the-app)
+- [🎛️ How to Use the App](#-how-to-use-the-app)
+- [📊 Tab Overview](#-tab-overview)
+- [🛠️ Developer Notes](#-developer-notes)
+- [📁 Folder Structure](#-folder-structure)
+- [👨‍🔬 Citation / Credit](#-citation--credit)
+- [🧠 FAQ](#-faq)
 
 ---
 
@@ -20,7 +42,7 @@ This interactive **R Shiny** app allows you to upload **MACS2 `.narrowPeak`** fi
 ### 🔬 Enrichment Bar Plot
 ![Bar Plot](screenshots/enrichment_bar_plot.png)
 
-
+---
 
 ## 🚀 Features
 
@@ -33,9 +55,22 @@ This interactive **R Shiny** app allows you to upload **MACS2 `.narrowPeak`** fi
 
 ---
 
+## 🧪 Sample Data
+
+A sample **ATAC-seq narrowPeak file** is provided for testing purposes.
+
+- 📁 Location: `sample_data/sample_ATAC.narrowPeak`
+- 🧬 Source: ENCODE Project – GM12878 cell line (hg19 assembly)  
+  [ENCFF002CUU – IDR-thresholded peaks](https://www.encodeproject.org/files/ENCFF002CUU/)
+
+This file can be used to test the app’s upload and visualization functions without needing to preprocess your own data.
+
+---
+
 ## 📦 Requirements (if running outside Docker)
 
 Install the required R packages manually:
+
 ```r
 install.packages(c(
   "shiny", "shinyjs", "plotly", "DT", "enrichR", "clusterProfiler"
@@ -48,63 +83,59 @@ BiocManager::install(c(
 
 🧪 How to Run the App
 🔁 Option 1: Local (with Docker)
-type bash in your terminal  then run:
 
+in Bash
 git clone https://github.com/your-user/ATAC_APP.git
 cd ATAC_APP
 bash run.sh
-Open in browser: http://localhost:8787
 
-
-This launches the app via Docker — no setup needed.
+Then open in your browser:
+http://localhost:8787
 
 💻 Option 2: Local (RStudio)
-
+r
 
 # From inside R
 setwd("path/to/ATAC_APP")
 library(shiny)
 runApp(".")
 
-
 🧠 Option 3: Singularity (for HPC clusters)
 If you're on an HPC system using Singularity or Apptainer:
-
 📦 Build the container
 
+in Bash:
 singularity build atac-shiny.sif Singularity.def
-
-🚀 Run the app
-
+🚀 Run the app:
 singularity run --bind $(pwd):/mnt atac-shiny.sif
 
-🌐 Access in browser
+🌐 Access in browser:
 
 # On remote HPC, port forward:
 ssh -L 8080:localhost:8080 youruser@cluster
 # Then open:
 http://localhost:8080
 
-
 🎛️ How to Use the App
 Upload a MACS2 .narrowPeak file
 
 Click "Upload"
+
 Load your peaks
+
 Run Peak Annotation
 
 Click "Run Peak Annotation"
+
 Annotates peaks with ChIPseeker
+
 Run Enrichment
 
 Select DB: GO / KEGG / Reactome
+
 Click "Run Enrichment Analysis"
 
-
-
-
 📊 Tab Overview
-
 Tab	Description
 Peak Annotation Table	Searchable table of annotated peaks with CSV download
 Annotation Pie Chart	Visual pie chart of peak distribution
@@ -114,12 +145,15 @@ README	Embedded usage guide inside app
 
 🛠️ Developer Notes
 🔒 Internal Error Logging
-All errors logged to error_log.txt
+All errors are logged to error_log.txt.
 For long-term use, schedule email_log.R to:
+
 Email logs to dev at midnight
+
 Archive old logs into /logs/
 
 📁 Folder Structure
+
 ATAC_APP/
 ├── app.R                  # Main app
 ├── email_log.R           # Internal dev monitoring (cron/timer)
@@ -129,9 +163,10 @@ ATAC_APP/
 ├── logs/                 # Log archives (optional)
 ├── run.sh                # Docker launcher script
 ├── Dockerfile            # Full containerized environment
+├── sample_data/
+│   └── sample_ATAC.narrowPeak  # Example input file
 └── README.md             # You're here
-
-👨‍🔬 Citation / Credit
+ Citation / Credit
 If you use this in a paper or lab project, a shoutout or link back is appreciated 🙏
 MIT License. Fork away.
 
@@ -142,9 +177,10 @@ A: This app uses Bioconductor packages (e.g., Rhtslib, ChIPseeker, TxDb) that re
 Q: Can I run this on an HPC?
 ✅ Yes. This app is fully portable via Docker or Singularity.
 
-
-Built a scientists, for scientists.
+Built by scientists, for scientists.
 🧬🖥️ Make ATAC analysis suck less.
+
+
 
 
 
