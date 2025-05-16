@@ -59,7 +59,7 @@ This interactive **R Shiny** app allows you to upload **MACS2 `.narrowPeak`** fi
 
 A sample **ATAC-seq narrowPeak file** is provided for testing purposes.
 
-- 📁 Location: `sample_data/sample_ATAC.narrowPeak`
+- 📁 Location: `sample_data/ENCFF002CUU.bed`
 - 🧬 Source: ENCODE Project – GM12878 cell line (hg19 assembly)  
   [ENCFF002CUU – IDR-thresholded peaks](https://www.encodeproject.org/files/ENCFF002CUU/)
 
@@ -164,7 +164,7 @@ ATAC_APP/
 ├── run.sh                # Docker launcher script
 ├── Dockerfile            # Full containerized environment
 ├── sample_data/
-│   └── sample_ATAC.narrowPeak  # Example input file
+│   └──  ENCFF002CUU.bed # Example input file
 └── README.md             # You're here
  Citation / Credit
 If you use this in a paper or lab project, a shoutout or link back is appreciated 🙏
