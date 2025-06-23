@@ -112,14 +112,74 @@ label#peakfile-label {
   margin-bottom: 6px;
   text-shadow: 0 0 3px #ffd700, 0 0 6px #ffd700 !important;
 }
-
-/* ✨ Fix select input label glow */
-label#enrichr_db-label {
-  color: #000 !important;
-  font-weight: bold !important;
-  font-size: 16px !important;
-  opacity: 1 !important;
+/* Restore and unify glowing label style for all sidebar input labels */
+.sidebarPanel label.control-label {
+  color: #fff;
+  font-weight: bold;
+  font-size: 16px;
+  text-shadow: 0 0 3px #ffd700, 0 0 6px #ffd700;
   display: block;
   margin-bottom: 6px;
-  text-shadow: 0 0 3px #ffd700, 0 0 6px #ffd700 !important;
+  opacity: 1;
+}
+
+/* Ensure fileInput and numericInput also get styled properly */
+.sidebarPanel .form-group > label,
+.sidebarPanel .shiny-input-container > label {
+  color: #fff;
+  font-weight: bold;
+  font-size: 16px;
+  text-shadow: 0 0 3px #ffd700, 0 0 6px #ffd700;
+  margin-bottom: 6px;
+  display: block;
+}
+
+
+/* Apply glowing label effect across all sidebarPanel inputs */
+.sidebarPanel label,
+.sidebarPanel .control-label,
+.sidebarPanel .form-label,
+.sidebarPanel .shiny-input-container > label {
+  color: #fff !important;
+  font-weight: bold;
+  font-size: 15px;
+  text-shadow: 0 0 4px #ffd700, 0 0 8px #ffd700;
+  display: block;
+  margin-bottom: 5px;
+}
+
+/* Ensure all form labels in sidebar are bold and glowing */
+.sidebarPanel label.control-label,
+.sidebarPanel .shiny-input-container > label,
+.sidebarPanel .form-group > label,
+.sidebarPanel .form-label,
+.sidebarPanel .input-group > label {
+  color: #ffffff !important;
+  font-weight: bold !important;
+  font-size: 15px !important;
+  text-shadow: 0 0 5px #ffd700, 0 0 10px #ffa500 !important;
+  margin-bottom: 6px;
+  display: block;
+}
+/* 🔥 Force all sidebarPanel labels to be white and glowing */
+.sidebarPanel label,
+.sidebarPanel .shiny-input-container > label,
+.sidebarPanel .form-group > label,
+.sidebarPanel .form-label,
+.sidebarPanel .input-group > label,
+.sidebarPanel .control-label {
+  color: #ffffff !important;
+  font-weight: bold !important;
+  text-shadow: 0 0 5px #ffcc00, 0 0 10px #ffcc00, 0 0 15px #ff6600 !important;
+  font-size: 15px !important;
+  margin-bottom: 8px;
+  display: block !important;
+  opacity: 1 !important;
+}
+
+/* Style all input labels with a black base and gold glow */
+.control-label {
+  color: black !important;
+  font-weight: bold;
+  text-shadow: 0 0 5px gold, 0 0 10px gold, 0 0 15px goldenrod;
 }
