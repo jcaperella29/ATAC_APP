@@ -1,19 +1,20 @@
 Bootstrap: docker
-From: rocker/r-ver:4.3.1
+From: bioconductor/bioconductor_docker:RELEASE_3_17
 
 %labels
     Maintainer ATAC DevOps 🧬
     App ATAC-seq Shiny Viewer
 
 %environment
-    export PORT=8080
-    export SHINY_PORT=8080
+    export PORT=8787
+    export SHINY_PORT=8787
     export DEBIAN_FRONTEND=noninteractive
     export MAKEFLAGS="-j4"
 
 %post
+    set -e
+    # --- Install all core system dependencies needed for R and Bioconductor data packages
     apt-get update && apt-get install -y \
-        build-essential \
         libcurl4-openssl-dev \
         libssl-dev \
         libxml2-dev \
@@ -38,41 +39,41 @@ From: rocker/r-ver:4.3.1
         libgdal-dev \
         libgeos-dev \
         libproj-dev \
-        libglpk-dev && apt-get clean
+        libglpk-dev \
+        libx11-dev \
+        libxext-dev \
+        libfftw3-dev \
+        libboost-all-dev \
+        libeigen3-dev \
+        libhdf5-dev \
+        libreadline-dev \
+        libgsl-dev \
+        libtbb-dev \
+        libzstd-dev \
+        libjpeg-dev \
+        libtiff5-dev \
+        libgdal-dev \
+        libhdf5-dev \
+        && apt-get clean
 
-    # Install CRAN packages
+    # --- Install R CRAN packages
+    Rscript -e "install.packages(c('shiny','shinyjs','plotly','DT','markdown','enrichR','randomForest','pROC','uwot','umap'), repos='https://cloud.r-project.org')"
+
+    Rscript -e "BiocManager::install(c('GenomicRanges','GenomicFeatures','org.Hs.eg.db','TxDb.Hsapiens.UCSC.hg38.knownGene','TFBSTools','JASPAR2020','BSgenome.Hsapiens.UCSC.hg38','motifmatchr'), ask=FALSE, update=TRUE, dependencies=TRUE)"
+
+    # --- Confirm key packages are installed
+    Rscript -e "stopifnot(requireNamespace('GenomicRanges', quietly=TRUE))"
+    Rscript -e "stopifnot(requireNamespace('TxDb.Hsapiens.UCSC.hg38.knownGene', quietly=TRUE))"
+    Rscript -e "stopifnot(requireNamespace('org.Hs.eg.db', quietly=TRUE))"
     
-Rscript -e "install.packages(c('shiny', 'shinyjs', 'plotly', 'DT', 'enrichR', 'markdown'), repos='https://cloud.r-project.org')"
+    Rscript -e "stopifnot(requireNamespace('TFBSTools', quietly=TRUE))"
+    Rscript -e "stopifnot(requireNamespace('JASPAR2020', quietly=TRUE))"
+    Rscript -e "stopifnot(requireNamespace('BSgenome.Hsapiens.UCSC.hg38', quietly=TRUE))"
 
-    # Write Bioconductor install script
-    cat <<EOF > /tmp/install_bioc.R
-    if (!requireNamespace("BiocManager", quietly = TRUE))
-        install.packages("BiocManager", repos="https://cloud.r-project.org")
-
-    BiocManager::install(c(
-        "ChIPseeker",
-        "TxDb.Hsapiens.UCSC.hg38.knownGene",
-        "org.Hs.eg.db",
-        "GenomicRanges",
-        "clusterProfiler",
-        "enrichplot",
-        "ReactomePA"
-    ), ask=FALSE, update=TRUE, dependencies=TRUE)
-EOF
-
-    Rscript /tmp/install_bioc.R
 
 %files
     app.R /app/app.R
     email_log.R /app/email_log.R
-    README.md /app/README.md
-    www/fairy_tail.css /app/www/fairy_tail.css
-    HOW_TO.md /app/HOW_TO.md  # <-- Add this line
-
 
 %runscript
-    echo "🔥 Starting ATAC Shiny App on port \${PORT}"
-    exec Rscript -e "options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"
-
-%startscript
-    exec Rscript -e "options(shiny.port=as.integer(Sys.getenv('PORT')), shiny.host='0.0.0.0'); shiny::runApp('/app')"
+    exec R -e "shiny::runApp('/app', port=8787, host='0.0.0.0')"
