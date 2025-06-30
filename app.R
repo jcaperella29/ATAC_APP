@@ -1,9 +1,14 @@
 # app.R
-library(shiny); library(shinyjs); library(plotly); library(DT)
-library(ChIPseeker); library(TxDb.Hsapiens.UCSC.hg38.knownGene); library(org.Hs.eg.db)
-library(GenomicRanges); library(clusterProfiler); library(enrichR)
+library(shiny); library(shinyjs); library(plotly); library(DT);
+ library(TxDb.Hsapiens.UCSC.hg38.knownGene); library(org.Hs.eg.db)
+library(GenomicRanges);  
 library(uwot); library(randomForest); library(pROC)
+library(TFBSTools)
+library(umap)
+library(JASPAR2020)
+library(motifmatchr)
 
+library(BSgenome.Hsapiens.UCSC.hg38)
 options(shiny.maxRequestSize = 200*1024^2)
 
 # ==== UI ====
@@ -25,9 +30,7 @@ ui <- fluidPage(
       actionButton("run_umap", "Run UMAP"),
       actionButton("run_heatmap", "Plot Heatmap"),
       actionButton("run_rf", "Run Random Forest Classifier"),
-      selectInput("enrichr_db", "Select Enrichment Database:",
-                  choices = c("GO_Biological_Process_2023","KEGG_2021_Human","Reactome_2022")),
-      actionButton("run_enrichment", "Run Enrichment Analysis"),
+     
       
       h4("Power Analysis"),
       numericInput("power_effect_size", "Effect Size (log2FC):", value=1, min=0.2, max=3),
@@ -47,8 +50,7 @@ ui <- fluidPage(
         tabPanel("PCA Plot", plotlyOutput("pca_plot")),
         tabPanel("UMAP Plot", plotlyOutput("umap_plot")),
         tabPanel("Heatmap", plotlyOutput("heatmap_plot")),
-        tabPanel("Enrichment Table", DTOutput("enrich_table"), downloadButton("download_enrich_table","Download")),
-        tabPanel("Enrichment Bar Plot", plotlyOutput("bar_plot")),
+        
         tabPanel("RF Metrics", DTOutput("rf_metrics")),
         tabPanel("Feature Importance", plotlyOutput("rf_varimp_plot")),
         tabPanel("ROC Curve", plotlyOutput("roc_plot")),
@@ -105,44 +107,78 @@ server <- function(input, output, session){
     })
   })
   
+  # Required libraries
+  library(GenomicRanges)
+  library(GenomicFeatures)
+  library(org.Hs.eg.db)
+  library(DT)
   
-  # --- Peak annotation
-  observeEvent(input$run_annotation,{
+  txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+  genes_gr <- genes(txdb)
+  tss_gr <- resize(genes_gr, 1, fix="start") # TSS locations
+  
+  observeEvent(input$run_annotation, {
     tryCatch({
       req(consensus_peaks_rv())
-      ann <- annotatePeak(consensus_peaks_rv(), tssRegion=c(-3000,3000),
-                          TxDb=TxDb.Hsapiens.UCSC.hg38.knownGene, annoDb="org.Hs.eg.db")
-      annotation_data(ann); showStatus("✅ Annotation complete")
-    }, error=function(e){ log_error(e,"run_annotation"); showNotification("❌ Annotation failed",type="error") })
+      
+      # Find nearest TSS for each peak
+      peaks <- consensus_peaks_rv()
+      nearest_idx <- nearest(peaks, tss_gr)
+      peak_to_tss <- tss_gr[nearest_idx]
+      
+      # Calculate distance to TSS
+      dist_to_tss <- start(peaks) - start(peak_to_tss)
+      
+      # Annotate with Entrez ID and Symbol
+      entrez_ids <- names(peak_to_tss)
+      gene_symbols <- mapIds(
+        org.Hs.eg.db, 
+        keys=entrez_ids, 
+        column="SYMBOL", 
+        keytype="ENTREZID", 
+        multiVals="first"
+      )
+      
+      # Construct annotation table
+      ann_df <- data.frame(
+        seqnames = as.character(seqnames(peaks)),
+        start = start(peaks),
+        end = end(peaks),
+        width = width(peaks),
+        strand = as.character(strand(peaks)),
+        nearest_gene_id = entrez_ids,
+        gene_symbol = gene_symbols,
+        distance_to_tss = dist_to_tss
+      )
+      
+      annotation_data(ann_df)
+      showStatus("✅ Annotation complete")
+    }, error=function(e){ 
+      log_error(e, "run_annotation"); 
+      showNotification("❌ Annotation failed", type="error") 
+    })
   })
-  output$peak_table <- renderDT({ req(annotation_data()); datatable(as.data.frame(annotation_data())) })
+  
+  output$peak_table <- renderDT({
+    req(annotation_data())
+    datatable(as.data.frame(annotation_data()))
+  })
+  
   output$download_peak_table <- downloadHandler(
     filename = "peak_annotations.csv",
     content = function(f) write.csv(as.data.frame(annotation_data()), f, row.names=FALSE)
   )
-  output$pie_plot <- renderPlot({ req(annotation_data()); plotAnnoPie(annotation_data()) })
   
-  # --- Enrichment
-  observeEvent(input$run_enrichment, {
-    tryCatch({
-      req(annotation_data())
-      genes <- na.omit(unique(as.data.frame(annotation_data())$SYMBOL))
-      req(length(genes)>0)
-      enr <- enrichr(genes, input$enrichr_db)
-      enrichment_data(enr); showStatus("✅ Enrichment complete")
-    }, error=function(e){ log_error(e,"run_enrichment"); showNotification("❌ Enrichment failed",type="error") })
+  output$pie_plot <- renderPlot({
+    req(annotation_data())
+    # Instead of plotAnnoPie (from ChIPseeker), we can make a custom plot, e.g. pie chart of gene_symbol counts
+    ann_df <- annotation_data()
+    gene_counts <- sort(table(ann_df$gene_symbol), decreasing=TRUE)
+    pie(gene_counts[gene_counts > 0], main="Annotated Peaks (by nearest gene)")
   })
-  output$enrich_table <- renderDT({ req(enrichment_data()); datatable(enrichment_data()[[1]]) })
-  output$download_enrich_table <- downloadHandler(
-    filename = "enrichment.csv",
-    content = function(f) write.csv(enrichment_data()[[1]], f, row.names=FALSE)
-  )
-  output$bar_plot <- renderPlotly({
-    req(enrichment_data())
-    df <- head(enrichment_data()[[1]][order(enrichment_data()[[1]]$Adjusted.P.value),],10)
-    plot_ly(df, x=~reorder(Term,-log10(Adjusted.P.value)), y=~-log10(Adjusted.P.value),
-            type="bar") %>% layout(xaxis=list(tickangle=-45))
-  })
+  
+
+
   
   # --- DAA (stub)
   observeEvent(input$run_daa_real, {
