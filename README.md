@@ -65,18 +65,30 @@ library(shiny)
 runApp(".")
 The app will open in your browser (e.g. http://localhost:8787 if using Shiny Server).
 
-Option 2: HPC / Singularity
-Build and run from the bash command line
+HPC / Singularity Deployment
+Option 2: HPC (with SLURM & Singularity)
+
+1.Build and run from the bash command line:
 
 singularity build atac-shiny.sif Singularity.def
-singularity run --bind $(pwd):/mnt atac-shiny.sif
+2.Submit your job with SLURM:
 
-Forward port 8787 from the cluster to your local machine:
-using
+sbatch run_atac_app.sh
+
+Monitor the output and error logs as specified in the batch script.
+
+3.Forward port 8787 to your local machine for browser access:
 
 ssh -L 8787:localhost:8787 user@cluster
-then 
-Open http://localhost:8787 in your browser.
+
+Open the app in your browser:
+http://localhost:8787
+Tip:
+
+Edit run_atac_app.sh to adjust resource requirements or output locations for your cluster.
+
+See example SLURM script (run_atac_app.sh) included in the repo.
+
 
 🎛️ How to Use the App
 Consensus Peaks:
@@ -136,6 +148,21 @@ Power Table	Power estimates with CI
 Error logging: All errors are appended to error_log.txt.
 
 Logs: Use email_log.R to manage or email logs if desired.
+ATAC_APP/
+├── app.R                    # Main Shiny app
+├── run.sh                   # Launch script (local)
+├── run_atac_app.sh          # SLURM batch script for HPC
+├── email_log.R              # Log emailer
+├── error_log.txt            # Error logs
+├── www/
+│   └── fairy_tail.css       # Themed UI
+├── sample_data/
+│   └── focused_promoter_peaks.zip
+│   └── simulated_counts (1).csv
+│   └── simulated_metadata (1).csv
+├── logs/                    # Archived logs
+├── Singularity.def          # Singularity definition
+└── README.md
 
 
 🧠 FAQ
