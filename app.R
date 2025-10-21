@@ -1,23 +1,145 @@
-# app.R
-library(shiny); library(shinyjs); library(plotly); library(DT);
- library(TxDb.Hsapiens.UCSC.hg38.knownGene); library(org.Hs.eg.db)
-library(GenomicRanges);  
+# app.R (multi-species annotation + motif update)
+library(shiny); library(shinyjs); library(plotly); library(DT)
+
+# Core genomics libs
+library(GenomicRanges)
+library(GenomicFeatures)
 library(uwot); library(randomForest); library(pROC)
-library(TFBSTools)
 library(umap)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(org.Mm.eg.db)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(org.Mm.eg.db)
+library(BSgenome.Mmusculus.UCSC.mm10)
+
+library(TxDb.Drerio.UCSC.danRer11.refGene)
+library(org.Dr.eg.db)
+library(BSgenome.Drerio.UCSC.danRer11)
+
+library(TxDb.Dmelanogaster.UCSC.dm6.ensGene)
+library(org.Dm.eg.db)
+library(BSgenome.Dmelanogaster.UCSC.dm6)
+
+# Motifs
+library(TFBSTools)
 library(JASPAR2020)
 library(motifmatchr)
 
-library(BSgenome.Hsapiens.UCSC.hg38)
+# We will load species-specific packages lazily
+# (TxDb.* , org.*.eg.db, BSgenome.*) based on user selection
+
 options(shiny.maxRequestSize = 200*1024^2)
 
-# ==== UI ====
+# ---- Multi-species helpers (explicit, robust) ----
+get_txdb <- function(sp) {
+  switch(sp,
+         human     = TxDb.Hsapiens.UCSC.hg38.knownGene,
+         mouse     = TxDb.Mmusculus.UCSC.mm10.knownGene,
+         zebrafish = TxDb.Drerio.UCSC.danRer11.refGene,
+         fly       = TxDb.Dmelanogaster.UCSC.dm6.ensGene,
+         TxDb.Hsapiens.UCSC.hg38.knownGene
+  )
+}
+
+get_orgdb <- function(sp) {
+  switch(sp,
+         human     = org.Hs.eg.db,
+         mouse     = org.Mm.eg.db,
+         zebrafish = org.Dr.eg.db,
+         fly       = org.Dm.eg.db,
+         org.Hs.eg.db
+  )
+}
+
+get_bsgenome <- function(sp) {
+  switch(sp,
+         human     = BSgenome.Hsapiens.UCSC.hg38,
+         mouse     = BSgenome.Mmusculus.UCSC.mm10,
+         zebrafish = BSgenome.Drerio.UCSC.danRer11,
+         fly       = BSgenome.Dmelanogaster.UCSC.dm6,
+         BSgenome.Hsapiens.UCSC.hg38
+  )
+}
+
+get_jaspar_taxid <- function(sp) {
+  switch(sp,
+         human = 9606L, mouse = 10090L, zebrafish = 7955L, fly = 7227L, 9606L
+  )
+}
+
+ 
+
+.get_jaspar_taxid <- function(sp) {
+  switch(sp,
+         human = 9606L,
+         mouse = 10090L,
+         zebrafish = 7955L,
+         fly = 7227L,
+         9606L
+  )
+}
+
+# Build (TxDb, genes, TSS, orgdb, bsgenome, jaspar_taxid) bundle
+.load_species_bundle <- function(sp) {
+  # sp is one of c("human","mouse","zebrafish","fly")
+  txdb_ns <- .get_txdb_for_species(sp)
+  if (is.null(txdb_ns)) return(list(error = paste0("TxDb package for ", sp, " is not installed.")))
+  
+  # TxDb object is usually the exported object == package name's main symbol
+  # Most TxDb packages export an object called 'TxDb.*' inside their namespace.
+  # Best way: get 'TxDb' object via getFromNamespace by finding object with class 'TxDb'
+  tx_objs <- ls(txdb_ns)
+  txdb <- NULL
+  for (o in tx_objs) {
+    obj <- try(get(o, envir = txdb_ns), silent = TRUE)
+    if (!inherits(obj, "try-error") && inherits(obj, "TxDb")) { txdb <- obj; break }
+  }
+  if (is.null(txdb)) return(list(error = paste0("Could not retrieve TxDb object for ", sp)))
+  
+  genes_gr <- try(genes(txdb), silent = TRUE)
+  if (inherits(genes_gr, "try-error")) return(list(error = "Failed to retrieve gene ranges from TxDb"))
+  
+  # TSS: strand-aware start site (resize width=1)
+  tss_gr <- try(resize(genes_gr, 1, fix = "start"), silent = TRUE)
+  if (inherits(tss_gr, "try-error")) return(list(error = "Failed to compute TSS ranges"))
+  
+  orgdb_ns <- .get_orgdb_for_species(sp)
+  if (is.null(orgdb_ns)) return(list(error = paste0("org.*.eg.db package for ", sp, " is not installed.")))
+  
+  bsgenome_obj <- .get_bsgenome_for_species(sp)
+  if (is.null(bsgenome_obj)) {
+    # We can still run annotation without BSgenome; motif step will warn.
+    bsgenome_obj <- NULL
+  }
+  
+  list(
+    txdb = txdb,
+    genes_gr = genes_gr,
+    tss_gr = tss_gr,
+    orgdb = orgdb_ns,
+    bsgenome = bsgenome_obj,
+    jaspar_species = .get_jaspar_taxid(sp),
+    error = NULL
+  )
+}
+
+# ---------- UI ----------
 ui <- fluidPage(
   includeCSS("www/fairy_tail.css"),
   useShinyjs(),
   titlePanel("JCAP_ATAC_SEQ APP"),
   sidebarLayout(
     sidebarPanel(
+      selectInput(
+        "species", "Species",
+        choices = c(
+          "Human (hg38)" = "human",
+          "Mouse (mm10)" = "mouse",
+          "Zebrafish (danRer11)" = "zebrafish",
+          "Fly (dm6)" = "fly"
+        ),
+        selected = "human"
+      ),
       fileInput("zipfile", "Upload ZIP of BED files for consensus peaks", accept = ".zip"),
       actionButton("make_peaks", "Make Consensus Peaks"),
       actionButton("run_annotation", "Run Peak Annotation"),
@@ -30,7 +152,6 @@ ui <- fluidPage(
       actionButton("run_umap", "Run UMAP"),
       actionButton("run_heatmap", "Plot Heatmap"),
       actionButton("run_rf", "Run Random Forest Classifier"),
-     
       
       h4("Power Analysis"),
       numericInput("power_effect_size", "Effect Size (log2FC):", value=1, min=0.2, max=3),
@@ -50,7 +171,6 @@ ui <- fluidPage(
         tabPanel("PCA Plot", plotlyOutput("pca_plot")),
         tabPanel("UMAP Plot", plotlyOutput("umap_plot")),
         tabPanel("Heatmap", plotlyOutput("heatmap_plot")),
-        
         tabPanel("RF Metrics", DTOutput("rf_metrics")),
         tabPanel("Feature Importance", plotlyOutput("rf_varimp_plot")),
         tabPanel("ROC Curve", plotlyOutput("roc_plot")),
@@ -61,7 +181,7 @@ ui <- fluidPage(
   )
 )
 
-# ==== SERVER ====
+# ---------- SERVER ----------
 server <- function(input, output, session){
   consensus_peaks_rv <- reactiveVal()
   annotation_data <- reactiveVal()
@@ -75,6 +195,18 @@ server <- function(input, output, session){
   
   showStatus <- function(msg) showNotification(msg, type="message", duration=5)
   log_error <- function(e, ctx) write(paste(Sys.time(), ctx, conditionMessage(e)), file="error_log.txt", append=TRUE)
+  
+  # Build a species bundle reactive that updates when species changes
+  species_bundle <- reactive({
+    sp <- input$species
+    b <- .load_species_bundle(sp)
+    if (!is.null(b$error)) {
+      showNotification(paste("⚠️", b$error, "Install the appropriate organism packages or switch species."), type="warning", duration = 7)
+    } else {
+      showNotification(paste("✅ Loaded species resources for", sp), type="message")
+    }
+    b
+  })
   
   observeEvent(input$make_peaks, {
     tryCatch({
@@ -107,57 +239,58 @@ server <- function(input, output, session){
     })
   })
   
-  # Required libraries
-  library(GenomicRanges)
-  library(GenomicFeatures)
-  library(org.Hs.eg.db)
-  library(DT)
-  
-  txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
-  genes_gr <- genes(txdb)
-  tss_gr <- resize(genes_gr, 1, fix="start") # TSS locations
-  
   observeEvent(input$run_annotation, {
     tryCatch({
       req(consensus_peaks_rv())
       
-      # Find nearest TSS for each peak
+      # map UI selection to helper key (already matches)
+      sp <- switch(input$species,
+                   human = "human", mouse = "mouse",
+                   zebrafish = "zebrafish", fly = "fly", "human")
+      
+      txdb  <- get_txdb(sp)
+      orgdb <- get_orgdb(sp)
+      
       peaks <- consensus_peaks_rv()
+      
+      genes_gr <- GenomicFeatures::genes(txdb)
+      tss_gr   <- resize(genes_gr, 1, fix = "start")
+      
       nearest_idx <- nearest(peaks, tss_gr)
       peak_to_tss <- tss_gr[nearest_idx]
-      
-      # Calculate distance to TSS
       dist_to_tss <- start(peaks) - start(peak_to_tss)
       
-      # Annotate with Entrez ID and Symbol
       entrez_ids <- names(peak_to_tss)
-      gene_symbols <- mapIds(
-        org.Hs.eg.db, 
-        keys=entrez_ids, 
-        column="SYMBOL", 
-        keytype="ENTREZID", 
-        multiVals="first"
+      
+      gene_symbols <- AnnotationDbi::mapIds(
+        orgdb,
+        keys     = entrez_ids,
+        column   = "SYMBOL",
+        keytype  = "ENTREZID",
+        multiVals = "first"
       )
       
-      # Construct annotation table
       ann_df <- data.frame(
-        seqnames = as.character(seqnames(peaks)),
-        start = start(peaks),
-        end = end(peaks),
-        width = width(peaks),
-        strand = as.character(strand(peaks)),
+        seqnames        = as.character(seqnames(peaks)),
+        start           = start(peaks),
+        end             = end(peaks),
+        width           = width(peaks),
+        strand          = as.character(strand(peaks)),
         nearest_gene_id = entrez_ids,
-        gene_symbol = gene_symbols,
-        distance_to_tss = dist_to_tss
+        gene_symbol     = unname(gene_symbols),
+        distance_to_tss = dist_to_tss,
+        stringsAsFactors = FALSE
       )
       
       annotation_data(ann_df)
-      showStatus("✅ Annotation complete")
-    }, error=function(e){ 
-      log_error(e, "run_annotation"); 
-      showNotification("❌ Annotation failed", type="error") 
+      showNotification("✅ Annotation complete", type = "message")
+    }, error = function(e) {
+      write(paste(Sys.time(), "run_annotation", conditionMessage(e)),
+            file = "error_log.txt", append = TRUE)
+      showNotification("❌ Annotation failed", type = "error")
     })
   })
+  
   
   output$peak_table <- renderDT({
     req(annotation_data())
@@ -171,16 +304,14 @@ server <- function(input, output, session){
   
   output$pie_plot <- renderPlot({
     req(annotation_data())
-    # Instead of plotAnnoPie (from ChIPseeker), we can make a custom plot, e.g. pie chart of gene_symbol counts
     ann_df <- annotation_data()
     gene_counts <- sort(table(ann_df$gene_symbol), decreasing=TRUE)
-    pie(gene_counts[gene_counts > 0], main="Annotated Peaks (by nearest gene)")
+    # show top 20 to keep readable
+    if (length(gene_counts) > 20) gene_counts <- gene_counts[1:20]
+    pie(gene_counts, main="Annotated Peaks (Top Genes by Nearest TSS)")
   })
   
-
-
-  
-  # --- DAA (stub)
+  # --- DAA (unchanged stub) ---
   observeEvent(input$run_daa_real, {
     tryCatch({
       req(input$count_matrix_file, input$metadata_file)
@@ -217,8 +348,7 @@ server <- function(input, output, session){
     })
   })
   
-  
-  # --- PCA & UMAP (stub)
+  # --- PCA & UMAP (unchanged stubs) ---
   observeEvent(input$run_pca, {
     tryCatch({
       req(uploaded_counts_rv(), input$metadata_file)
@@ -244,6 +374,7 @@ server <- function(input, output, session){
       showNotification(paste("❌ PCA error:", conditionMessage(e)), type = "error")
     })
   })
+  
   observeEvent(input$run_umap, {
     tryCatch({
       req(uploaded_counts_rv(), input$metadata_file)
@@ -271,38 +402,54 @@ server <- function(input, output, session){
     })
   })
   
-  
-  # --- Motif Enrichment (stub)
+  # --- Motif Enrichment (species-aware, using helpers) ---
   observeEvent(input$run_motif, {
     tryCatch({
       req(consensus_peaks_rv())
       
+      # Map UI value to helper key (adjust if your selectInput uses different values)
+      sp <- switch(input$species,
+                   human = "human",
+                   mouse = "mouse",
+                   zebrafish = "zebrafish",
+                   fly = "fly",
+                   "human")
+      
+      # Get genome + JASPAR species id explicitly
+      bsgenome <- get_bsgenome(sp)
+      if (is.null(bsgenome)) {
+        showNotification("⚠️ BSgenome for selected species is not installed; motif scanning cannot run.",
+                         type = "warning")
+        return()
+      }
+      taxid <- get_jaspar_taxid(sp)
+      
       showStatus("📥 Fetching motifs from JASPAR2020")
-      opts <- if (input$jaspar_family == "ALL") list() else list(species = 9606, family = input$jaspar_family)
+      opts <- list(species = taxid)
+      if (input$jaspar_family != "ALL") opts$family <- input$jaspar_family
       pwm_list <- TFBSTools::getMatrixSet(JASPAR2020, opts)
       
       peak_gr <- consensus_peaks_rv()
       showStatus(paste0("📏 Consensus peak count: ", length(peak_gr)))
       
       showStatus("🔍 Matching motifs to peaks...")
-      matches <- motifmatchr::matchMotifs(pwm_list, peak_gr, genome = BSgenome.Hsapiens.UCSC.hg38)
+      matches   <- motifmatchr::matchMotifs(pwm_list, peak_gr, genome = bsgenome)
       motif_mat <- motifmatchr::motifMatches(matches)
       showStatus("✅ Motif matching complete")
       
-      showStatus(paste0("🧮 Matrix dimensions: ", nrow(motif_mat), " x ", ncol(motif_mat)))
+      scores <- Matrix::colSums(motif_mat)
       
-      # Use colSums instead of rowSums to evaluate per-motif presence
-      motif_scores <- Matrix::colSums(motif_mat)
-      
-      if (length(motif_scores) == 0 || all(motif_scores == 0)) {
-        showNotification("⚠️ No motif enrichment detected (all zeros). Try more peaks or different TF family.", type = "warning")
+      if (length(scores) == 0 || all(scores == 0)) {
+        showNotification("⚠️ No motif enrichment detected (all zeros). Try more peaks or a different TF family.",
+                         type = "warning")
         return()
       }
       
       motif_df <- data.frame(
-        motif = names(motif_scores),
-        count = motif_scores,
-        perc_peaks = motif_scores / nrow(motif_mat) * 100
+        motif      = names(scores),
+        count      = as.numeric(scores),
+        perc_peaks = as.numeric(scores) / nrow(motif_mat) * 100,
+        stringsAsFactors = FALSE
       )
       motif_df <- motif_df[order(-motif_df$count), ][1:min(20, nrow(motif_df)), ]
       
@@ -310,22 +457,20 @@ server <- function(input, output, session){
       
       output$motif_enrich_plot <- renderPlotly({
         plot_ly(motif_df, x = ~motif, y = ~count, type = "bar") %>%
-          layout(title = "Top Motifs", xaxis = list(title = ""), yaxis = list(title = "Peak Count"))
+          layout(title = "Top Motifs", xaxis = list(title = ""),
+                 yaxis = list(title = "Peak Count"))
       })
       
       output$motif_enrich_table <- renderDT({
-        datatable(motif_df)
+        DT::datatable(motif_df)
       })
       
       output$download_motif <- downloadHandler(
         filename = function() paste0("motif_enrichment_", Sys.Date(), ".csv"),
-        content = function(file) {
-          write.csv(motif_df, file, row.names = FALSE)
-        }
+        content  = function(file) write.csv(motif_df, file, row.names = FALSE)
       )
       
       showStatus("✅ Motif enrichment complete.")
-      
     }, error = function(e) {
       log_error(e, "run_motif")
       showNotification(paste("❌ Motif error:", conditionMessage(e)), type = "error")
@@ -333,7 +478,7 @@ server <- function(input, output, session){
   })
   
   
-  # --- Random Forest + ROC
+  # --- Random Forest + ROC (unchanged) ---
   observeEvent(input$run_rf,{
     tryCatch({
       req(uploaded_counts_rv(), input$metadata_file)
@@ -366,7 +511,7 @@ server <- function(input, output, session){
     }, error=function(e){ log_error(e,"run_rf"); showNotification("❌ RF error",type="error") })
   })
   
-  # --- Power Analysis
+  # --- Power Analysis (unchanged) ---
   observeEvent(input$run_power,{
     tryCatch({
       req(uploaded_counts_rv(), input$metadata_file)
@@ -392,6 +537,8 @@ server <- function(input, output, session){
       showStatus("✅ Power analysis complete")
     }, error=function(e){ log_error(e,"run_power"); showNotification("❌ Power error",type="error") })
   })
+  
+  # Upload hooks (unchanged)
   observeEvent(input$count_matrix_file, {
     tryCatch({
       req(input$count_matrix_file)
@@ -414,6 +561,7 @@ server <- function(input, output, session){
     })
   })
   
+  # Heatmap (unchanged)
   observeEvent(input$run_heatmap, {
     tryCatch({
       req(uploaded_counts_rv(), input$metadata_file)
@@ -423,7 +571,6 @@ server <- function(input, output, session){
       log_counts <- log2(counts + 1)
       showNotification("🔍 Log-transformed counts", type = "message")
       
-      # Variance filter
       row_vars <- apply(log_counts, 1, var)
       showNotification(paste("🔬 Variance calculated across", nrow(log_counts), "rows"), type = "message")
       
@@ -431,14 +578,11 @@ server <- function(input, output, session){
       mat <- log_counts[top_var, , drop = FALSE]
       showNotification(paste("📊 Selected top", nrow(mat), "variable peaks"), type = "message")
       
-      # Debug matrix size
-      print(dim(mat))
       if (nrow(mat) < 2 || ncol(mat) < 2) {
         showNotification("⚠️ Not enough rows or columns to cluster", type = "error")
         return()
       }
       
-      # Clustering
       showNotification("🔗 Performing clustering...", type = "message")
       row_dist <- dist(mat)
       row_clust <- hclust(row_dist)
@@ -446,11 +590,8 @@ server <- function(input, output, session){
       col_clust <- hclust(col_dist)
       showNotification("✅ Clustering complete", type = "message")
       
-      # Reorder matrix
       heatmap_data <- as.matrix(mat[row_clust$order, col_clust$order])
-      print("✅ Matrix reordered for heatmap")
       
-      # Plotly heatmap
       output$heatmap_plot <- renderPlotly({
         plot_ly(
           z = heatmap_data,
@@ -475,13 +616,9 @@ server <- function(input, output, session){
     })
   })
   
+}  # server
 
-}  # ← closes the server function
-
-  
-
-  
-
-
-# ==== App Launch ====
 shinyApp(ui, server)
+  
+
+  
