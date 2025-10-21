@@ -3,7 +3,7 @@ From: bioconductor/bioconductor_docker:RELEASE_3_17
 
 %labels
     Maintainer ATAC DevOps 🧬
-    App ATAC-seq Shiny Viewer
+    App ATAC-seq Shiny Viewer (multi-species ready)
 
 %environment
     export PORT=8787
@@ -13,7 +13,6 @@ From: bioconductor/bioconductor_docker:RELEASE_3_17
 
 %post
     set -e
-    # --- Install all core system dependencies needed for R and Bioconductor data packages
     apt-get update && apt-get install -y \
         libcurl4-openssl-dev \
         libssl-dev \
@@ -50,26 +49,29 @@ From: bioconductor/bioconductor_docker:RELEASE_3_17
         libgsl-dev \
         libtbb-dev \
         libzstd-dev \
-        libjpeg-dev \
-        libtiff5-dev \
-        libgdal-dev \
-        libhdf5-dev \
         && apt-get clean
 
-    # --- Install R CRAN packages
+    # --- Install core CRAN packages
     Rscript -e "install.packages(c('shiny','shinyjs','plotly','DT','markdown','enrichR','randomForest','pROC','uwot','umap'), repos='https://cloud.r-project.org')"
 
-    Rscript -e "BiocManager::install(c('GenomicRanges','GenomicFeatures','org.Hs.eg.db','TxDb.Hsapiens.UCSC.hg38.knownGene','TFBSTools','JASPAR2020','BSgenome.Hsapiens.UCSC.hg38','motifmatchr'), ask=FALSE, update=TRUE, dependencies=TRUE)"
+    # --- Install Bioconductor packages (multi-species)
+    Rscript -e "BiocManager::install(c(
+        'GenomicRanges','GenomicFeatures','AnnotationDbi',
+        'TFBSTools','JASPAR2020','motifmatchr',
+        'org.Hs.eg.db','TxDb.Hsapiens.UCSC.hg38.knownGene','BSgenome.Hsapiens.UCSC.hg38',
+        'org.Mm.eg.db','TxDb.Mmusculus.UCSC.mm10.knownGene','BSgenome.Mmusculus.UCSC.mm10',
+        'org.Dr.eg.db','TxDb.Drerio.UCSC.danRer11.refGene','BSgenome.Drerio.UCSC.danRer11',
+        'org.Dm.eg.db','TxDb.Dmelanogaster.UCSC.dm6.ensGene','BSgenome.Dmelanogaster.UCSC.dm6'
+    ), ask=FALSE, update=TRUE, dependencies=TRUE)"
 
-    # --- Confirm key packages are installed
+    # --- Verify critical objects load
     Rscript -e "stopifnot(requireNamespace('GenomicRanges', quietly=TRUE))"
-    Rscript -e "stopifnot(requireNamespace('TxDb.Hsapiens.UCSC.hg38.knownGene', quietly=TRUE))"
-    Rscript -e "stopifnot(requireNamespace('org.Hs.eg.db', quietly=TRUE))"
-    
-    Rscript -e "stopifnot(requireNamespace('TFBSTools', quietly=TRUE))"
+    Rscript -e "stopifnot(requireNamespace('motifmatchr', quietly=TRUE))"
     Rscript -e "stopifnot(requireNamespace('JASPAR2020', quietly=TRUE))"
-    Rscript -e "stopifnot(requireNamespace('BSgenome.Hsapiens.UCSC.hg38', quietly=TRUE))"
-
+    Rscript -e "stopifnot(requireNamespace('TxDb.Hsapiens.UCSC.hg38.knownGene', quietly=TRUE))"
+    Rscript -e "stopifnot(requireNamespace('TxDb.Mmusculus.UCSC.mm10.knownGene', quietly=TRUE))"
+    Rscript -e "stopifnot(requireNamespace('TxDb.Drerio.UCSC.danRer11.refGene', quietly=TRUE))"
+    Rscript -e "stopifnot(requireNamespace('TxDb.Dmelanogaster.UCSC.dm6.ensGene', quietly=TRUE))"
 
 %files
     app.R /app/app.R
