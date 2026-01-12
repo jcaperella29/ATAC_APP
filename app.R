@@ -1,7 +1,10 @@
 # app.R (multi-species annotation + motif update)
 library(shiny); library(shinyjs); library(plotly); library(DT)
 
-# Core genomics libs
+# Core genolibrary(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(org.Hs.eg.db)
+library(BSgenome.Hsapiens.UCSC.hg38)
+mics libs
 library(GenomicRanges)
 library(GenomicFeatures)
 library(uwot); library(randomForest); library(pROC)
@@ -61,15 +64,10 @@ get_bsgenome <- function(sp) {
   )
 }
 
-get_jaspar_taxid <- function(sp) {
-  switch(sp,
-         human = 9606L, mouse = 10090L, zebrafish = 7955L, fly = 7227L, 9606L
-  )
-}
 
  
 
-.get_jaspar_taxid <- function(sp) {
+get_jaspar_taxid <- function(sp) {
   switch(sp,
          human = 9606L,
          mouse = 10090L,
@@ -80,48 +78,7 @@ get_jaspar_taxid <- function(sp) {
 }
 
 # Build (TxDb, genes, TSS, orgdb, bsgenome, jaspar_taxid) bundle
-.load_species_bundle <- function(sp) {
-  # sp is one of c("human","mouse","zebrafish","fly")
-  txdb_ns <- .get_txdb_for_species(sp)
-  if (is.null(txdb_ns)) return(list(error = paste0("TxDb package for ", sp, " is not installed.")))
-  
-  # TxDb object is usually the exported object == package name's main symbol
-  # Most TxDb packages export an object called 'TxDb.*' inside their namespace.
-  # Best way: get 'TxDb' object via getFromNamespace by finding object with class 'TxDb'
-  tx_objs <- ls(txdb_ns)
-  txdb <- NULL
-  for (o in tx_objs) {
-    obj <- try(get(o, envir = txdb_ns), silent = TRUE)
-    if (!inherits(obj, "try-error") && inherits(obj, "TxDb")) { txdb <- obj; break }
-  }
-  if (is.null(txdb)) return(list(error = paste0("Could not retrieve TxDb object for ", sp)))
-  
-  genes_gr <- try(genes(txdb), silent = TRUE)
-  if (inherits(genes_gr, "try-error")) return(list(error = "Failed to retrieve gene ranges from TxDb"))
-  
-  # TSS: strand-aware start site (resize width=1)
-  tss_gr <- try(resize(genes_gr, 1, fix = "start"), silent = TRUE)
-  if (inherits(tss_gr, "try-error")) return(list(error = "Failed to compute TSS ranges"))
-  
-  orgdb_ns <- .get_orgdb_for_species(sp)
-  if (is.null(orgdb_ns)) return(list(error = paste0("org.*.eg.db package for ", sp, " is not installed.")))
-  
-  bsgenome_obj <- .get_bsgenome_for_species(sp)
-  if (is.null(bsgenome_obj)) {
-    # We can still run annotation without BSgenome; motif step will warn.
-    bsgenome_obj <- NULL
-  }
-  
-  list(
-    txdb = txdb,
-    genes_gr = genes_gr,
-    tss_gr = tss_gr,
-    orgdb = orgdb_ns,
-    bsgenome = bsgenome_obj,
-    jaspar_species = .get_jaspar_taxid(sp),
-    error = NULL
-  )
-}
+
 
 # ---------- UI ----------
 ui <- fluidPage(
@@ -197,16 +154,7 @@ server <- function(input, output, session){
   log_error <- function(e, ctx) write(paste(Sys.time(), ctx, conditionMessage(e)), file="error_log.txt", append=TRUE)
   
   # Build a species bundle reactive that updates when species changes
-  species_bundle <- reactive({
-    sp <- input$species
-    b <- .load_species_bundle(sp)
-    if (!is.null(b$error)) {
-      showNotification(paste("⚠️", b$error, "Install the appropriate organism packages or switch species."), type="warning", duration = 7)
-    } else {
-      showNotification(paste("✅ Loaded species resources for", sp), type="message")
-    }
-    b
-  })
+  
   
   observeEvent(input$make_peaks, {
     tryCatch({
@@ -622,3 +570,4 @@ shinyApp(ui, server)
   
 
   
+
