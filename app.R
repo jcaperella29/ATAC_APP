@@ -23,11 +23,26 @@ library(BSgenome.Drerio.UCSC.danRer11)
 library(TxDb.Dmelanogaster.UCSC.dm6.ensGene)
 library(org.Dm.eg.db)
 library(BSgenome.Dmelanogaster.UCSC.dm6)
-
+library(DESeq2)
 # Motifs
 library(TFBSTools)
 library(JASPAR2020)
 library(motifmatchr)
+library(enrichR)
+library(enrichR)
+
+# --- Fix enrichR option initialization bug ---
+if (is.null(getOption("enrichR.sites.base.address")) ||
+    !is.character(getOption("enrichR.sites.base.address")) ||
+    !nzchar(getOption("enrichR.sites.base.address"))) {
+  options(enrichR.sites.base.address = "https://maayanlab.cloud/Enrichr")
+}
+
+# (Optional) ensure default site is Enrichr
+# This will now work because the option exists and is a valid string
+try(enrichR::setEnrichrSite("Enrichr"), silent = TRUE)
+
+
 
 # We will load species-specific packages lazily
 # (TxDb.* , org.*.eg.db, BSgenome.*) based on user selection
@@ -227,12 +242,16 @@ server <- function(input, output, session){
   
   # Build a species bundle reactive that updates when species changes
   
-  # Convert "A;B;C" into a character vector safely
-  split_genes <- function(s) {
-    if (is.null(s) || is.na(s) || !nzchar(s)) return(character())
-    g <- unlist(strsplit(s, ";", fixed = TRUE))
-    g <- unique(trimws(g))
-    g[nzchar(g)]
+  split_genes <- function(x) {
+    x <- as.character(x)
+    x <- x[!is.na(x)]
+    if (length(x) == 0) return(character(0))
+    
+    # split on ; , whitespace, or newlines/tabs
+    g <- unlist(strsplit(x, "[;,\n\r\t ]+"))
+    g <- trimws(g)
+    g <- g[g != "" & g != "NA"]
+    unique(g)
   }
   
   
@@ -300,18 +319,28 @@ server <- function(input, output, session){
     ov_col = ov_col
   )
 }
-
-  # Run Enrichr safely; returns a DF (or empty DF)
-  run_enrichr_safe <- function(genes, db) {
-    genes <- unique(trimws(genes))
-    genes <- genes[nzchar(genes)]
-    if (length(genes) < 5) return(data.frame())  # too few genes
-    
-    res <- enrichR::enrichr(genes, db)
-    out <- res[[db]]
-    if (is.null(out)) return(data.frame())
-    out
+run_enrichr_safe <- function(genes, db) {
+  if (!requireNamespace("enrichR", quietly = TRUE)) {
+    stop("enrichR package is not installed. Install: install.packages('enrichR')")
   }
+
+  genes <- unique(trimws(genes))
+  genes <- genes[nzchar(genes)]
+  if (length(genes) < 5) return(data.frame())
+
+  # IMPORTANT: enrichR wants db as a character vector
+  out <- tryCatch({
+    res <- enrichR::enrichr(genes, databases = db)
+    res[[db]]
+  }, error = function(e) {
+    # surface a clearer error upstream
+    stop("Enrichr API call failed: ", conditionMessage(e))
+  })
+
+  if (is.null(out)) return(data.frame())
+  out
+}
+
   
   observeEvent(input$make_peaks, {
     tryCatch({
@@ -1092,7 +1121,10 @@ server <- function(input, output, session){
 shinyApp(ui, server)
   
 
+  
+
 
   
+
 
 
