@@ -4,14 +4,15 @@ library(shiny); library(shinyjs); library(plotly); library(DT)
 # Core genolibrary(TxDb.Hsapiens.UCSC.hg38.knownGene)
 library(org.Hs.eg.db)
 library(BSgenome.Hsapiens.UCSC.hg38)
-mics libs
+
 library(GenomicRanges)
 library(GenomicFeatures)
 library(uwot); library(randomForest); library(pROC)
 library(umap)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(org.Hs.eg.db)
+library(BSgenome.Hsapiens.UCSC.hg38)
 library(TxDb.Mmusculus.UCSC.mm10.knownGene)
-library(org.Mm.eg.db)
-library(BSgenome.Mmusculus.UCSC.mm10)
 library(org.Mm.eg.db)
 library(BSgenome.Mmusculus.UCSC.mm10)
 
@@ -105,6 +106,21 @@ ui <- fluidPage(
       fileInput("count_matrix_file", "Upload Count Matrix CSV", accept = ".csv"),
       fileInput("metadata_file", "Upload Metadata CSV", accept = ".csv"),
       actionButton("run_daa_real", "Run DAA on Uploaded Counts"),
+      actionButton("run_enrichr_btn", "Run Enrichr (Selected Contrast)"),
+      selectInput(
+        "enrichr_db",
+        "Enrichr database",
+        choices = c(
+          "Reactome_2022",
+          "GO_Biological_Process_2021",
+          "KEGG_2021_Human",
+          "WikiPathways_2023_Human",
+          "MSigDB_Hallmark_2020"
+        ),
+        selected = "Reactome_2022"
+      ),
+      
+      
       actionButton("run_pca", "Run PCA"),
       actionButton("run_umap", "Run UMAP"),
       actionButton("run_heatmap", "Plot Heatmap"),
@@ -124,7 +140,59 @@ ui <- fluidPage(
         tabPanel("Annotation Pie Chart", plotOutput("pie_plot")),
         tabPanel("Motif Enrichment Plot", plotlyOutput("motif_enrich_plot")),
         tabPanel("Motif Enrichment Table", DTOutput("motif_enrich_table"), downloadButton("download_motif","Download")),
-        tabPanel("Uploaded DAA Results", DTOutput("uploaded_daa_table"), downloadButton("download_uploaded_daa","Download")),
+        tabPanel(
+          "DAA Results (per condition)",
+          selectInput("contrast_pick", "Select contrast", choices = c("Run DAA first" = "")),
+          hr(),
+          h4("Full DAA table"),
+          DTOutput("daa_table_selected"),
+          downloadButton("dl_daa_selected", "Download full DAA CSV"),
+          hr(),
+          h4("Gene sets for Enrichment Triage App"),
+          h5("DAA_ALL"),
+          DTOutput("gs_all_selected"),
+          downloadButton("dl_all_selected", "Download DAA_ALL geneset"),
+          hr(),
+          h5("DAA_UP"),
+          DTOutput("gs_up_selected"),
+          downloadButton("dl_up_selected", "Download DAA_UP geneset"),
+          hr(),
+          h5("DAA_DOWN"),
+          DTOutput("gs_down_selected"),
+          downloadButton("dl_down_selected", "Download DAA_DOWN geneset"),
+          hr(),
+          downloadButton("dl_bundle_selected", "Download ALL (ALL+UP+DOWN) as one CSV")
+        ),
+        tabPanel(
+          "Enrichr (per contrast)",
+          selectInput("enrichr_set_pick", "Gene set", choices = c("ALL", "UP", "DOWN"), selected = "ALL"),
+          numericInput("enrichr_top_n", "Top terms to show", value = 15, min = 5, max = 50),
+          
+          tabsetPanel(
+            tabPanel(
+              "Barplot",
+              plotlyOutput("enrichr_barplot", height = "650px")
+            ),
+            tabPanel(
+              "Tables",
+              h5("ALL"),
+              DTOutput("enrichr_all_tbl"),
+              downloadButton("dl_enrichr_all", "Download ALL"),
+              hr(),
+              h5("UP"),
+              DTOutput("enrichr_up_tbl"),
+              downloadButton("dl_enrichr_up", "Download UP"),
+              hr(),
+              h5("DOWN"),
+              DTOutput("enrichr_down_tbl"),
+              downloadButton("dl_enrichr_down", "Download DOWN"),
+              hr(),
+              downloadButton("dl_enrichr_bundle", "Download ALL+UP+DOWN bundle")
+            )
+          )
+        ),
+        
+        
         tabPanel("PCA Plot", plotlyOutput("pca_plot")),
         tabPanel("UMAP Plot", plotlyOutput("umap_plot")),
         tabPanel("Heatmap", plotlyOutput("heatmap_plot")),
@@ -149,12 +217,101 @@ server <- function(input, output, session){
   motif_enrich_rv <- reactiveVal()
   rf_results_rv <- reactiveVal(); rf_importance_rv <- reactiveVal()
   power_df_rv <- reactiveVal()
+  enrichr_by_contrast_rv <- reactiveVal(list())  # contrast -> list(db=..., all=..., up=..., down=...)
+  
+  daa_by_contrast_rv <- reactiveVal(list())   # contrast -> full DAA res_df
+  gene_sets_rv       <- reactiveVal(list())   # contrast -> list(all/up/down geneset dfs)
   
   showStatus <- function(msg) showNotification(msg, type="message", duration=5)
   log_error <- function(e, ctx) write(paste(Sys.time(), ctx, conditionMessage(e)), file="error_log.txt", append=TRUE)
   
   # Build a species bundle reactive that updates when species changes
   
+  # Convert "A;B;C" into a character vector safely
+  split_genes <- function(s) {
+    if (is.null(s) || is.na(s) || !nzchar(s)) return(character())
+    g <- unlist(strsplit(s, ";", fixed = TRUE))
+    g <- unique(trimws(g))
+    g[nzchar(g)]
+  }
+  
+  
+  prep_enrichr_for_plot <- function(tbl, topn = 15, min_overlap_genes = 2) {
+  if (is.null(tbl) || !is.data.frame(tbl) || nrow(tbl) == 0) return(NULL)
+
+  # Detect columns (Enrichr naming varies a bit)
+  term_col <- if ("Term" %in% colnames(tbl)) "Term" else colnames(tbl)[1]
+
+  # Prefer adjusted p if present
+  p_col <- if ("Adjusted.P.value" %in% colnames(tbl)) "Adjusted.P.value"
+  else if ("Adjusted P-value" %in% colnames(tbl)) "Adjusted P-value"
+  else if ("P.value" %in% colnames(tbl)) "P.value"
+  else if ("P-value" %in% colnames(tbl)) "P-value"
+  else NULL
+
+  # Combined score if present
+  cs_col <- if ("Combined.Score" %in% colnames(tbl)) "Combined.Score"
+  else if ("Combined Score" %in% colnames(tbl)) "Combined Score"
+  else NULL
+
+  # Overlap column is usually like "3/250"
+  ov_col <- if ("Overlap" %in% colnames(tbl)) "Overlap" else NULL
+
+  # Must have p-values to plot
+  if (is.null(p_col)) return(NULL)
+
+  df <- tbl
+
+  # Parse overlap numerator for filtering
+  if (!is.null(ov_col)) {
+    ov_num <- suppressWarnings(as.integer(sub("/.*$", "", df[[ov_col]])))
+    ov_num[is.na(ov_num)] <- 0L
+    df$OverlapN <- ov_num
+    df <- df[df$OverlapN >= min_overlap_genes, , drop = FALSE]
+  }
+
+  if (nrow(df) == 0) return(NULL)
+
+  # Ensure p-values sane; avoid -Inf
+  df[[p_col]] <- suppressWarnings(as.numeric(df[[p_col]]))
+  df[[p_col]][is.na(df[[p_col]])] <- 1
+  df$mlog10p <- -log10(pmax(df[[p_col]], 1e-300))
+
+  # Ranking:
+  # 1) If Combined Score exists, rank by it (desc), tie-break by p (asc)
+  # 2) else rank by p (asc)
+  if (!is.null(cs_col)) {
+    df[[cs_col]] <- suppressWarnings(as.numeric(df[[cs_col]]))
+    df[[cs_col]][is.na(df[[cs_col]])] <- -Inf
+    ord <- order(-df[[cs_col]], df[[p_col]])
+  } else {
+    ord <- order(df[[p_col]])
+  }
+  df <- df[ord, , drop = FALSE]
+
+  # Take top N
+  df <- df[1:min(topn, nrow(df)), , drop = FALSE]
+
+  list(
+    df = df,
+    term_col = term_col,
+    p_col = p_col,
+    cs_col = cs_col,
+    ov_col = ov_col
+  )
+}
+
+  # Run Enrichr safely; returns a DF (or empty DF)
+  run_enrichr_safe <- function(genes, db) {
+    genes <- unique(trimws(genes))
+    genes <- genes[nzchar(genes)]
+    if (length(genes) < 5) return(data.frame())  # too few genes
+    
+    res <- enrichR::enrichr(genes, db)
+    out <- res[[db]]
+    if (is.null(out)) return(data.frame())
+    out
+  }
   
   observeEvent(input$make_peaks, {
     tryCatch({
@@ -178,20 +335,22 @@ server <- function(input, output, session){
       seqs <- Filter(Negate(is.null), seqs)
       req(length(seqs) > 0)
       
-      consensus_peaks_rv(reduce(do.call(c, seqs)))
-      showStatus(paste("✅ Consensus peaks:", length(consensus_peaks_rv())))
+      cons <- reduce(do.call(c, seqs))
+      names(cons) <- paste0("peak_", seq_along(cons))
+      consensus_peaks_rv(cons)
       
+      showStatus(paste("✅ Consensus peaks:", length(consensus_peaks_rv())))
     }, error = function(e) {
       log_error(e, "make_peaks")
       showNotification("❌ Consensus peak generation failed", type = "error")
     })
   })
   
+  
   observeEvent(input$run_annotation, {
     tryCatch({
       req(consensus_peaks_rv())
       
-      # map UI selection to helper key (already matches)
       sp <- switch(input$species,
                    human = "human", mouse = "mouse",
                    zebrafish = "zebrafish", fly = "fly", "human")
@@ -202,21 +361,55 @@ server <- function(input, output, session){
       peaks <- consensus_peaks_rv()
       
       genes_gr <- GenomicFeatures::genes(txdb)
-      tss_gr   <- resize(genes_gr, 1, fix = "start")
       
-      nearest_idx <- nearest(peaks, tss_gr)
-      peak_to_tss <- tss_gr[nearest_idx]
-      dist_to_tss <- start(peaks) - start(peak_to_tss)
+      # make TSS (keep strand so "start" is strand-aware)
+      tss_gr <- promoters(genes_gr, upstream = 0, downstream = 1)
       
-      entrez_ids <- names(peak_to_tss)
+      nearest_idx <- nearest(peaks, tss_gr, ignore.strand = TRUE)
       
-      gene_symbols <- AnnotationDbi::mapIds(
-        orgdb,
-        keys     = entrez_ids,
-        column   = "SYMBOL",
-        keytype  = "ENTREZID",
-        multiVals = "first"
-      )
+      # initialize outputs safely
+      entrez_or_geneid <- rep(NA_character_, length(peaks))
+      dist_to_tss      <- rep(NA_integer_,  length(peaks))
+      
+      ok <- !is.na(nearest_idx)
+      if (any(ok)) {
+        nearest_tss <- tss_gr[nearest_idx[ok]]
+        dist_to_tss[ok] <- start(peaks[ok]) - start(nearest_tss)
+        
+        
+        # Robust: TxDb gene IDs usually live in mcols(..)$gene_id
+        if ("gene_id" %in% colnames(mcols(nearest_tss))) {
+          entrez_or_geneid[ok] <- as.character(mcols(nearest_tss)$gene_id)
+        } else {
+          entrez_or_geneid[ok] <- as.character(names(nearest_tss))
+        } }
+        
+      
+      # ---- auto-detect keytype for mapIds based on ID patterns ----
+      detect_keytype <- function(ids) {
+        ids <- ids[!is.na(ids)]
+        if (!length(ids)) return("ENTREZID")
+        
+        if (any(grepl("^FBgn", ids))) return("FLYBASE")
+        if (any(grepl("^ENS",  ids))) return("ENSEMBL")
+        if (all(grepl("^[0-9]+$", ids))) return("ENTREZID")
+        
+        # fallback
+        "ENTREZID"
+      }
+      
+      kt <- detect_keytype(entrez_or_geneid)
+      
+      gene_symbols <- rep(NA_character_, length(peaks))
+      if (any(ok)) {
+        gene_symbols[ok] <- unname(AnnotationDbi::mapIds(
+          orgdb,
+          keys      = entrez_or_geneid[ok],
+          column    = "SYMBOL",
+          keytype   = kt,
+          multiVals = "first"
+        ))
+      }
       
       ann_df <- data.frame(
         seqnames        = as.character(seqnames(peaks)),
@@ -224,20 +417,25 @@ server <- function(input, output, session){
         end             = end(peaks),
         width           = width(peaks),
         strand          = as.character(strand(peaks)),
-        nearest_gene_id = entrez_ids,
-        gene_symbol     = unname(gene_symbols),
+        nearest_gene_id = entrez_or_geneid,
+        gene_symbol     = gene_symbols,
         distance_to_tss = dist_to_tss,
         stringsAsFactors = FALSE
       )
       
+      ann_df$peak_id <- names(peaks)
+      
+      
       annotation_data(ann_df)
-      showNotification("✅ Annotation complete", type = "message")
+      showNotification(paste0("✅ Annotation complete (keytype=", kt, ")"), type="message")
+      
     }, error = function(e) {
       write(paste(Sys.time(), "run_annotation", conditionMessage(e)),
             file = "error_log.txt", append = TRUE)
-      showNotification("❌ Annotation failed", type = "error")
+      showNotification(paste("❌ Annotation failed:", conditionMessage(e)), type = "error")
     })
   })
+  
   
   
   output$peak_table <- renderDT({
@@ -259,42 +457,152 @@ server <- function(input, output, session){
     pie(gene_counts, main="Annotated Peaks (Top Genes by Nearest TSS)")
   })
   
-  # --- DAA (unchanged stub) ---
+  # --- DAA (ATAC-safe, per-contrast, with robust geneset export) ---
   observeEvent(input$run_daa_real, {
     tryCatch({
       req(input$count_matrix_file, input$metadata_file)
+      req(annotation_data())  # need peak_id -> gene mapping
       
-      counts <- read.csv(input$count_matrix_file$datapath, row.names = 1)
-      metadata <- read.csv(input$metadata_file$datapath, row.names = 1)
+      counts   <- read.csv(input$count_matrix_file$datapath, row.names = 1, check.names = FALSE)
+      metadata <- read.csv(input$metadata_file$datapath, row.names = 1, check.names = FALSE)
+      
+      # ---- HARD sample alignment checks ----
+      if (!all(colnames(counts) %in% rownames(metadata))) {
+        missing <- setdiff(colnames(counts), rownames(metadata))
+        stop("Metadata is missing these samples from the count matrix: ", paste(missing, collapse = ", "))
+      }
       metadata <- metadata[colnames(counts), , drop = FALSE]
+      if (!identical(rownames(metadata), colnames(counts))) {
+        stop("Sample order mismatch: rownames(metadata) must exactly match colnames(counts).")
+      }
       
-      dds <- DESeq2::DESeqDataSetFromMatrix(countData = round(counts),
-                                            colData = metadata,
-                                            design = ~ condition)
-      dds <- DESeq2::DESeq(dds)
-      res <- DESeq2::results(dds)
-      res_df <- as.data.frame(res[order(res$padj), ])
-      res_df$peak <- rownames(res_df)
+      # ---- Ensure + clean condition ----
+      req("condition" %in% colnames(metadata))
+      metadata$condition <- factor(trimws(as.character(metadata$condition)))
+      if (nlevels(metadata$condition) < 2) {
+        stop("Need at least 2 condition levels. Found: ", paste(levels(metadata$condition), collapse = ", "))
+      }
       
-      uploaded_counts_rv(counts)
-      uploaded_daa_rv(res_df)
+      # Prefer Control as reference if present
+      if ("Control" %in% levels(metadata$condition)) {
+        metadata$condition <- relevel(metadata$condition, ref = "Control")
+      }
       
-      output$uploaded_daa_table <- renderDT({
-        datatable(res_df, options = list(scrollX = TRUE))
-      })
+      # ---- ATAC peak filtering (CRITICAL) ----
+      keep <- rowSums(counts >= 10) >= 2
+      counts <- counts[keep, , drop = FALSE]
+      if (nrow(counts) < 10) {
+        stop("After filtering, too few peaks remain (", nrow(counts), "). Lower the filter threshold for this dataset.")
+      }
       
-      output$download_uploaded_daa <- downloadHandler(
-        filename = "daa_results.csv",
-        content = function(file) write.csv(res_df, file, row.names = FALSE)
+      dds <- DESeq2::DESeqDataSetFromMatrix(
+        countData = round(counts),
+        colData   = metadata,
+        design    = ~ condition
       )
       
-      showStatus("✅ DAA complete.")
+      # ---- Freeze size factors (prevents DESeq2 from normalizing away global shifts) ----
+      DESeq2::sizeFactors(dds) <- rep(1, ncol(dds))
+      
+      # Run DESeq without estimating size factors (they're already set)
+      dds <- DESeq2::DESeq(dds, sfType = "poscounts")
+      
+      
+      # Baseline + contrasts
+      ref_level  <- levels(metadata$condition)[1]
+      other_lvls <- setdiff(levels(metadata$condition), ref_level)
+      
+      # ---- Annotation mapping ----
+      ann <- annotation_data()
+      if (!"peak_id" %in% colnames(ann)) {
+        stop("annotation_data() is missing peak_id. Re-run annotation after consensus peaks are named peak_#.")
+      }
+      
+      # helper: enrichr-style gene set table
+      make_geneset_row <- function(term, peaks, padj_value = NA_real_, score = NA_real_) {
+        genes <- unique(na.omit(ann$gene_symbol[match(peaks, ann$peak_id)]))
+        genes <- genes[genes != ""]
+        data.frame(
+          Term = term,
+          `Adjusted P-value` = padj_value,
+          `Combined Score`   = score,
+          Genes             = if (length(genes)) paste(genes, collapse = ";") else "",
+          stringsAsFactors  = FALSE
+        )
+      }
+      
+      # Geneset fallback size if no padj hits
+      TOP_N_FALLBACK <- 500
+      
+      daa_list <- list()
+      gs_list  <- list()
+      
+      for (lvl in other_lvls) {
+        contrast_name <- paste0(lvl, "_vs_", ref_level)
+        
+        res <- DESeq2::results(dds, contrast = c("condition", lvl, ref_level))
+        res_df <- as.data.frame(res)
+        res_df$peak_id <- rownames(res_df)
+        
+        # sort by padj then pvalue
+        res_df <- res_df[order(res_df$padj, res_df$pvalue), , drop = FALSE]
+        daa_list[[contrast_name]] <- res_df
+        
+        res_df2 <- res_df[!is.na(res_df$padj), ]
+        
+        # Take top N peaks by significance
+        TOP_N <- 1000   # 500–2000 is usually perfect
+        res_top <- res_df2[order(res_df2$padj), ][1:min(TOP_N, nrow(res_df2)), ]
+        
+        sig <- res_top
+        sig_up   <- subset(res_top, log2FoldChange > 0)
+        sig_down <- subset(res_top, log2FoldChange < 0)
+        
+        
+        # Fallback if nothing significant: take top N by pvalue (keeps your pipeline moving)
+        if (nrow(sig) == 0) {
+          sig <- res_df[order(res_df$pvalue), , drop = FALSE]
+          sig <- sig[!is.na(sig$pvalue), , drop = FALSE]
+          sig <- sig[1:min(TOP_N_FALLBACK, nrow(sig)), , drop = FALSE]
+          showNotification(
+            paste0("⚠️ ", contrast_name, ": no padj<0.05 peaks. Using top ", nrow(sig), " by p-value for genesets."),
+            type = "warning"
+          )
+        }
+        
+        sig_up   <- subset(sig, log2FoldChange > 0)
+        sig_down <- subset(sig, log2FoldChange < 0)
+        
+        minp_all  <- if (nrow(sig)      > 0) min(sig$padj, na.rm = TRUE) else NA_real_
+        minp_up   <- if (nrow(sig_up)   > 0) min(sig_up$padj, na.rm = TRUE) else NA_real_
+        minp_down <- if (nrow(sig_down) > 0) min(sig_down$padj, na.rm = TRUE) else NA_real_
+        
+        gs_all  <- make_geneset_row(paste0("DAA_ALL_",  contrast_name), sig$peak_id,      minp_all)
+        gs_up   <- make_geneset_row(paste0("DAA_UP_",   contrast_name), sig_up$peak_id,   minp_up)
+        gs_down <- make_geneset_row(paste0("DAA_DOWN_", contrast_name), sig_down$peak_id, minp_down)
+        
+        gs_list[[contrast_name]] <- list(all = gs_all, up = gs_up, down = gs_down)
+        
+        # quick status
+        showNotification(
+          paste0("✅ ", contrast_name,
+                 " | peaks kept=", nrow(counts),
+                 " | sig(padj<0.05)=", sum(!is.na(res_df$padj) & res_df$padj < 0.05)),
+          type = "message"
+        )
+      }
+      
+      daa_by_contrast_rv(daa_list)
+      gene_sets_rv(gs_list)
+      
+      showStatus(paste0("✅ DAA complete for ", length(other_lvls), " contrast(s)."))
       
     }, error = function(e) {
-      log_error(e, "run_daa_real")
+      log_error(e, "run_daa_real_multi")
       showNotification(paste("❌ DAA error:", conditionMessage(e)), type = "error")
     })
   })
+  
   
   # --- PCA & UMAP (unchanged stubs) ---
   observeEvent(input$run_pca, {
@@ -564,10 +872,227 @@ server <- function(input, output, session){
     })
   })
   
+  
+  
+  observeEvent(daa_by_contrast_rv(), {
+    contrasts <- names(daa_by_contrast_rv())
+    if (length(contrasts) == 0) return()
+    
+    updateSelectInput(
+      session,
+      "contrast_pick",
+      choices = setNames(contrasts, contrasts),
+      selected = contrasts[1]
+    )
+  })
+  selected_contrast <- reactive({
+    req(input$contrast_pick)
+    req(input$contrast_pick != "")
+    input$contrast_pick
+  })
+  
+  output$daa_table_selected <- renderDT({
+    ct <- selected_contrast()
+    datatable(daa_by_contrast_rv()[[ct]], options = list(scrollX = TRUE, pageLength = 25))
+  })
+  
+  output$gs_all_selected <- renderDT({
+    ct <- selected_contrast()
+    datatable(gene_sets_rv()[[ct]]$all, options = list(dom = "t"))
+  })
+  
+  output$gs_up_selected <- renderDT({
+    ct <- selected_contrast()
+    datatable(gene_sets_rv()[[ct]]$up, options = list(dom = "t"))
+  })
+  
+  output$gs_down_selected <- renderDT({
+    ct <- selected_contrast()
+    datatable(gene_sets_rv()[[ct]]$down, options = list(dom = "t"))
+  })
+  
+  output$dl_daa_selected <- downloadHandler(
+    filename = function() paste0("DAA_", selected_contrast(), "_full.csv"),
+    content = function(file) write.csv(daa_by_contrast_rv()[[selected_contrast()]], file, row.names = FALSE)
+  )
+  
+  output$dl_all_selected <- downloadHandler(
+    filename = function() paste0("DAA_ALL_", selected_contrast(), "_geneset.csv"),
+    content = function(file) write.csv(gene_sets_rv()[[selected_contrast()]]$all, file, row.names = FALSE)
+  )
+  
+  output$dl_up_selected <- downloadHandler(
+    filename = function() paste0("DAA_UP_", selected_contrast(), "_geneset.csv"),
+    content = function(file) write.csv(gene_sets_rv()[[selected_contrast()]]$up, file, row.names = FALSE)
+  )
+  
+  output$dl_down_selected <- downloadHandler(
+    filename = function() paste0("DAA_DOWN_", selected_contrast(), "_geneset.csv"),
+    content = function(file) write.csv(gene_sets_rv()[[selected_contrast()]]$down, file, row.names = FALSE)
+  )
+  
+  output$dl_bundle_selected <- downloadHandler(
+    filename = function() paste0("DAA_bundle_", selected_contrast(), "_genesets.csv"),
+    content = function(file) {
+      gs <- gene_sets_rv()[[selected_contrast()]]
+      write.csv(rbind(gs$all, gs$up, gs$down), file, row.names = FALSE)
+    }
+  )
+  
+  observeEvent(input$run_enrichr_btn, {
+    tryCatch({
+      ct <- selected_contrast()        # uses your reactive() that req()s contrast_pick
+      req(gene_sets_rv()[[ct]])
+      db <- input$enrichr_db
+      
+      gs <- gene_sets_rv()[[ct]]
+      
+      # Genes live in the Enrichr-style table row you created
+      genes_all  <- split_genes(gs$all$Genes[1])
+      genes_up   <- split_genes(gs$up$Genes[1])
+      genes_down <- split_genes(gs$down$Genes[1])
+      
+      showStatus(paste0("🌐 Running Enrichr: ", ct, " | DB=", db))
+      
+      en_all  <- run_enrichr_safe(genes_all,  db)
+      en_up   <- run_enrichr_safe(genes_up,   db)
+      en_down <- run_enrichr_safe(genes_down, db)
+      
+      # store (keep previous contrasts)
+      store <- enrichr_by_contrast_rv()
+      store[[ct]] <- list(db = db, all = en_all, up = en_up, down = en_down)
+      enrichr_by_contrast_rv(store)
+      
+      showStatus("✅ Enrichr complete.")
+      
+      # friendly warning if empty
+      if (nrow(en_all) == 0 && nrow(en_up) == 0 && nrow(en_down) == 0) {
+        showNotification("⚠️ Enrichr returned no results (often too few genes or no internet access).", type="warning")
+      }
+      
+    }, error = function(e) {
+      log_error(e, "run_enrichr_btn")
+      showNotification(paste("❌ Enrichr error:", conditionMessage(e)), type="error")
+    })
+  })
+  output$enrichr_all_tbl <- renderDT({
+    ct <- selected_contrast()
+    x <- enrichr_by_contrast_rv()[[ct]]$all
+    req(!is.null(x))
+    DT::datatable(x, options = list(scrollX = TRUE, pageLength = 25))
+  })
+  
+  output$enrichr_up_tbl <- renderDT({
+    ct <- selected_contrast()
+    x <- enrichr_by_contrast_rv()[[ct]]$up
+    req(!is.null(x))
+    DT::datatable(x, options = list(scrollX = TRUE, pageLength = 25))
+  })
+  
+  output$enrichr_down_tbl <- renderDT({
+    ct <- selected_contrast()
+    x <- enrichr_by_contrast_rv()[[ct]]$down
+    req(!is.null(x))
+    DT::datatable(x, options = list(scrollX = TRUE, pageLength = 25))
+  })
+  output$enrichr_barplot <- renderPlotly({
+    ct <- selected_contrast()
+    req(enrichr_by_contrast_rv()[[ct]])
+    
+    set_pick <- input$enrichr_set_pick
+    topn <- input$enrichr_top_n
+    
+    tbl <- switch(set_pick,
+                  "ALL"  = enrichr_by_contrast_rv()[[ct]]$all,
+                  "UP"   = enrichr_by_contrast_rv()[[ct]]$up,
+                  "DOWN" = enrichr_by_contrast_rv()[[ct]]$down)
+    
+    # Filter tiny overlaps + pick adjusted p + rank by combined score
+    prepped <- prep_enrichr_for_plot(tbl, topn = topn, min_overlap_genes = 2)
+    
+    if (is.null(prepped)) {
+      showNotification("⚠️ No Enrichr rows to plot after filtering (try lowering overlap filter or increasing gene set size).",
+                       type="warning")
+      return(plotly::plot_ly())
+    }
+    
+    df <- prepped$df
+    tcol <- prepped$term_col
+    pcol <- prepped$p_col
+    cscol <- prepped$cs_col
+    ovcol <- prepped$ov_col
+    
+    # Make a nicer hover label
+    hover_txt <- df[[tcol]]
+    hover_txt <- paste0(
+      "<b>", df[[tcol]], "</b>",
+      "<br>-log10(p): ", round(df$mlog10p, 3),
+      "<br>", if (!is.null(pcol)) paste0(pcol, ": ", signif(df[[pcol]], 4)) else "",
+      if (!is.null(cscol)) paste0("<br>", cscol, ": ", round(df[[cscol]], 3)) else "",
+      if (!is.null(ovcol)) paste0("<br>Overlap: ", df[[ovcol]]) else ""
+    )
+    
+    plotly::plot_ly(
+      df,
+      x = ~mlog10p,
+      y = ~reorder(df[[tcol]], mlog10p),
+      type = "bar",
+      orientation = "h",
+      text = hover_txt,
+      hoverinfo = "text"
+    ) %>% plotly::layout(
+      title = paste0("Enrichr ", set_pick, " | ", ct, " | ", enrichr_by_contrast_rv()[[ct]]$db,
+                     " (rank=", if (!is.null(cscol)) "CombinedScore" else "p-value",
+                     ", minOverlap≥2)"),
+      xaxis = list(title = "-log10(Adjusted p or p)"),
+      yaxis = list(title = "")
+    )
+  })
+  
+  output$dl_enrichr_all <- downloadHandler(
+    filename = function() paste0("Enrichr_ALL_", selected_contrast(), "_", input$enrichr_db, ".csv"),
+    content = function(file) {
+      ct <- selected_contrast()
+      write.csv(enrichr_by_contrast_rv()[[ct]]$all, file, row.names = FALSE)
+    }
+  )
+  
+  output$dl_enrichr_up <- downloadHandler(
+    filename = function() paste0("Enrichr_UP_", selected_contrast(), "_", input$enrichr_db, ".csv"),
+    content = function(file) {
+      ct <- selected_contrast()
+      write.csv(enrichr_by_contrast_rv()[[ct]]$up, file, row.names = FALSE)
+    }
+  )
+  
+  output$dl_enrichr_down <- downloadHandler(
+    filename = function() paste0("Enrichr_DOWN_", selected_contrast(), "_", input$enrichr_db, ".csv"),
+    content = function(file) {
+      ct <- selected_contrast()
+      write.csv(enrichr_by_contrast_rv()[[ct]]$down, file, row.names = FALSE)
+    }
+  )
+  
+  output$dl_enrichr_bundle <- downloadHandler(
+    filename = function() paste0("Enrichr_BUNDLE_", selected_contrast(), "_", input$enrichr_db, ".csv"),
+    content = function(file) {
+      ct <- selected_contrast()
+      x <- enrichr_by_contrast_rv()[[ct]]
+      # add a label column so bundle is readable
+      all  <- if (nrow(x$all))  cbind(Set="ALL",  x$all)  else data.frame(Set="ALL")
+      up   <- if (nrow(x$up))   cbind(Set="UP",   x$up)   else data.frame(Set="UP")
+      down <- if (nrow(x$down)) cbind(Set="DOWN", x$down) else data.frame(Set="DOWN")
+      write.csv(rbind(all, up, down), file, row.names = FALSE)
+    }
+  )
+  
+  
 }  # server
 
 shinyApp(ui, server)
   
 
+
   
+
 
