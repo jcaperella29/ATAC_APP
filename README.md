@@ -42,7 +42,7 @@ You need R (≥ 4.3.x) and the following R packages:
 ```r
 install.packages(c(
   "shiny", "shinyjs", "plotly", "DT", "markdown",
-  "randomForest", "pROC", "uwot", "umap"
+  "randomForest", "pROC", "enrichR","uwot", "umap"
 ))
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 BiocManager::install(c(
@@ -98,7 +98,37 @@ Peak Annotation:
 Click Run Peak Annotation.
 
 Results: Peak Annotation Table, Pie Chart.
+🧬 Enrichr Pathway Analysis
 
+Run Enrichr
+
+Run DAA first
+
+Select a contrast (e.g. Treated_vs_Control)
+
+Choose a gene set (DAA_ALL, DAA_UP, or DAA_DOWN)
+
+Click Run Enrichr
+
+The app will:
+
+Map ATAC peaks → genes
+
+Send the gene set to Enrichr
+
+Retrieve enriched GO, Reactome, KEGG, and regulatory pathways
+
+Rank results by Combined Score (or Adjusted p-value when needed)
+
+Filter out weak single-gene overlaps
+
+Results appear in:
+
+Enrichr Table (full pathway list)
+
+Enrichr Barplot (top ranked biological programs)
+
+This converts chromatin accessibility changes into interpretable biological pathways for downstream analysis and LLM triage.
 Motif Enrichment:
 Select a JASPAR family, click Run Motif Enrichment.
 
@@ -107,6 +137,9 @@ Results: Motif Table, Motif Barplot.
 Counts & Metadata:
 Upload count matrix (CSV) and metadata (CSV).
 Click Run DAA on Uploaded Counts to see DESeq2 results.
+
+.
+
 
 Exploratory Visualizations:
 
@@ -127,22 +160,26 @@ Set effect size, FDR, and replicates. Click Run Power Analysis.
 Downloadable Results:
 All major tables have Download buttons.
 
-📊 Tab Overview
-Tab Name	Description
-README	Usage guide
-Peak Annotation Table	Annotated peaks (downloadable)
-Annotation Pie Chart	Distribution of peak locations
-Motif Enrichment Table	TF motif matches
-Motif Enrichment Plot	Barplot of top motifs
-Uploaded DAA Results	DESeq2 output
-PCA Plot	Principal component analysis
-UMAP Plot	UMAP projection
-Heatmap	Log-scaled count heatmap
-RF Metrics	AUC, accuracy, confusion matrix
-Feature Importance	Top peaks by Gini importance
-ROC Curve	ROC performance plot
-Power Plot	Power vs. replicates
-Power Table	Power estimates with CI
+| Tab Name                            | Description                                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------------------- |
+| **README**                          | Usage guide, pipeline overview, and interpretation notes                               |
+| **Peak Annotation Table**           | Annotated consensus peaks with nearest gene, TSS distance, and peak IDs (downloadable) |
+| **Annotation Pie Chart**            | Visual distribution of peaks by nearest gene (top hits)                                |
+| **Motif Enrichment Table**          | Transcription factor motifs matched to accessible regions                              |
+| **Motif Enrichment Plot**           | Barplot of top enriched transcription factor motifs                                    |
+| **DAA Results (per condition)**     | Differential accessibility results from DESeq2 for each contrast                       |
+| **DAA Gene Sets (ALL / UP / DOWN)** | Enrichr-ready gene sets built from significant ATAC peaks                              |
+| **Enrichr Pathways**                | Pathway enrichment of ATAC-derived gene sets (GO, Reactome, etc.)                      |
+| **Enrichr Barplot**                 | Ranked pathway barplot (Combined Score / Adjusted p-value)                             |
+| **PCA Plot**                        | Principal component analysis of ATAC peak counts                                       |
+| **UMAP Plot**                       | UMAP projection of samples based on chromatin accessibility                            |
+| **Heatmap**                         | Clustered heatmap of top variable peaks (log-scaled counts)                            |
+| **RF Metrics**                      | Random forest classifier performance (AUC, accuracy)                                   |
+| **Feature Importance**              | Peaks ranked by Gini importance from the RF model                                      |
+| **ROC Curve**                       | Receiver-operating characteristic curve for classification                             |
+| **Power Plot**                      | Statistical power vs. number of replicates                                             |
+| **Power Table**                     | Power estimates with confidence intervals (downloadable)                               |
+
 
 🛠️ Developer Notes
 Error logging: All errors are appended to error_log.txt.
