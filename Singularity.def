@@ -50,9 +50,9 @@ From: bioconductor/bioconductor_docker:RELEASE_3_17
         libtbb-dev \
         libzstd-dev \
         && apt-get clean
+# --- Install core CRAN packages
+Rscript -e "install.packages(c('shiny','shinyjs','plotly','DT','markdown','enrichR','randomForest','pROC','uwot','umap','httr','jsonlite'), repos='https://cloud.r-project.org')"
 
-    # --- Install core CRAN packages
-    Rscript -e "install.packages(c('shiny','shinyjs','plotly','DT','markdown','enrichR','randomForest','pROC','uwot','umap'), repos='https://cloud.r-project.org')"
 
     # --- Install Bioconductor packages (multi-species)
     Rscript -e "BiocManager::install(c(
